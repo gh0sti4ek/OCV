@@ -1,13 +1,14 @@
+# Настройка параметров фото/видео
+
 import cv2
 import numpy as np
 import io
 
-# --- СТАНДАРТНЫЕ/ОПТИМАЛЬНЫЕ НАСТРОЙКИ (Используются как значения по умолчанию) ---
 
-# CLAHE (яркость/контрастность локально)
+# CLAHE (яркость)
 DEFAULT_CLIP_LIMIT = 4.0
 
-# Резкость (Ядро будет применяться с силой sharpness_factor)
+# Резкость
 DEFAULT_SHARPENING_KERNEL = np.array([
     [0, -1, 0],
     [-1, 5, -1],
@@ -21,17 +22,17 @@ DEFAULT_DENOISE_H_COLOR = 10.0
 DEFAULT_DENOISE_TEMPLATE_WINDOW_SIZE = 7
 DEFAULT_DENOISE_SEARCH_WINDOW_SIZE = 21
 
-# Настройка для Усиления Насыщенности
+# Насыщенность
 DEFAULT_SATURATION_FACTOR = 1.3
 
-# Настройка для ГЛОБАЛЬНОГО Контраста и Яркости
+# Глобальный контраст и яркость
 DEFAULT_CONTRAST_ALPHA = 1.15
 DEFAULT_BRIGHTNESS__BETA = 15
 
 
 def enhance_low_light_clahe(image_data, denoise_h, saturation_factor, sharpness_factor, contrast_alpha,
                             brightness_beta):
-    """ТВОЯ ОРИГИНАЛЬНАЯ ФУНКЦИЯ ДЛЯ ФОТО (БЕЗ ИЗМЕНЕНИЙ)"""
+    """Функция обработки фотографий"""
     try:
         nparr = np.frombuffer(image_data.read(), np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -39,7 +40,7 @@ def enhance_low_light_clahe(image_data, denoise_h, saturation_factor, sharpness_
         if img is None:
             return None
 
-        # --- БЛОК 1: Улучшение ЯРКОСТИ (CLAHE) ---
+        # БЛОК 1: Улучшение Яркости
         lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
         clahe = cv2.createCLAHE(clipLimit=DEFAULT_CLIP_LIMIT, tileGridSize=(8, 8))
@@ -47,26 +48,26 @@ def enhance_low_light_clahe(image_data, denoise_h, saturation_factor, sharpness_
         limg = cv2.merge((cl, a, b))
         clahe_img = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
 
-        # --- БЛОК 2: УДАЛЕНИЕ ШУМА ---
+        # БЛОК 2: Удаление Шума
         denoised_img = cv2.fastNlMeansDenoisingColored(
             clahe_img, None, int(denoise_h), int(denoise_h / 2),
             DEFAULT_DENOISE_TEMPLATE_WINDOW_SIZE, DEFAULT_DENOISE_SEARCH_WINDOW_SIZE
         )
 
-        # --- БЛОК 3: УСИЛЕНИЕ НАСЫЩЕННОСТИ ---
+        # БЛОК 3: Усиление Насыщенности
         hsv_img = cv2.cvtColor(denoised_img, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv_img)
         s_enhanced = np.clip(s.astype(np.float32) * saturation_factor, 0, 255).astype(np.uint8)
         saturated_img = cv2.merge((h, s_enhanced, v))
         saturated_bgr = cv2.cvtColor(saturated_img, cv2.COLOR_HSV2BGR)
 
-        # --- БЛОК 4: Улучшение ЧЁТКОСТИ ---
+        # БЛОК 4: Улучшение Чёткости
         sharpening_kernel = (DEFAULT_SHARPENING_KERNEL * sharpness_factor) + (1.0 - sharpness_factor) * np.array([
             [0, 0, 0], [0, 1, 0], [0, 0, 0]
         ])
         sharpened_img = cv2.filter2D(saturated_bgr, -1, sharpening_kernel)
 
-        # --- БЛОК 5: ГЛОБАЛЬНЫЙ КОНТРАСТ И ЯРКОСТЬ ---
+        # БЛОК 5: Глобальные Контраст, Яркость
         final_img = cv2.convertScaleAbs(sharpened_img, alpha=contrast_alpha, beta=int(brightness_beta))
 
         is_success, buffer = cv2.imencode(".jpg", final_img)
@@ -80,14 +81,13 @@ def enhance_low_light_clahe(image_data, denoise_h, saturation_factor, sharpness_
 
 def process_video(input_path, output_path, denoise_h, saturation_factor, sharpness_factor, contrast_alpha,
                   brightness_beta):
-    """НОВАЯ ФУНКЦИЯ ДЛЯ ВИДЕО С ТВОЕЙ ЛОГИКОЙ"""
+    """Функция обработки видео"""
     try:
         cap = cv2.VideoCapture(input_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # Используем кодек mp4v для совместимости с .mp4
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
@@ -95,32 +95,32 @@ def process_video(input_path, output_path, denoise_h, saturation_factor, sharpne
             ret, frame = cap.read()
             if not ret: break
 
-            # 1. CLAHE
+            # 1. БЛОК 1: Улучшение Яркости
             lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
             l, a, b = cv2.split(lab)
             clahe = cv2.createCLAHE(clipLimit=DEFAULT_CLIP_LIMIT, tileGridSize=(8, 8))
             cl = clahe.apply(l)
             frame = cv2.cvtColor(cv2.merge((cl, a, b)), cv2.COLOR_LAB2BGR)
 
-            # 2. ШУМ (Для видео шум — это долго, но делаем как в оригинале)
+            # БЛОК 2: Удаление Шума
             if denoise_h > 0:
                 frame = cv2.fastNlMeansDenoisingColored(
                     frame, None, int(denoise_h), int(denoise_h / 2),
                     DEFAULT_DENOISE_TEMPLATE_WINDOW_SIZE, DEFAULT_DENOISE_SEARCH_WINDOW_SIZE
                 )
 
-            # 3. НАСЫЩЕННОСТЬ
+            # БЛОК 3: Усиление Насыщенности
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             h, s, v = cv2.split(hsv)
             s_enhanced = np.clip(s.astype(np.float32) * saturation_factor, 0, 255).astype(np.uint8)
             frame = cv2.cvtColor(cv2.merge((h, s_enhanced, v)), cv2.COLOR_HSV2BGR)
 
-            # 4. РЕЗКОСТЬ
+            # БЛОК 4: Улучшение Чёткости
             sk = (DEFAULT_SHARPENING_KERNEL * sharpness_factor) + (1.0 - sharpness_factor) * np.array(
                 [[0, 0, 0], [0, 1, 0], [0, 0, 0]])
             frame = cv2.filter2D(frame, -1, sk)
 
-            # 5. КОНТРАСТ И ЯРКОСТЬ
+            # БЛОК 5: Глобальные Контраст, Яркость
             frame = cv2.convertScaleAbs(frame, alpha=contrast_alpha, beta=int(brightness_beta))
 
             out.write(frame)

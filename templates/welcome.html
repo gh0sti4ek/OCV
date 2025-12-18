@@ -4,15 +4,15 @@
 <div class="container py-5">
     <div class="text-center mb-5">
         <h1 class="display-3 fw-bold text-warning">OCV</h1>
-        <p class="lead text-white-50">Интеллектуальный сервис улучшения изображений на базе OpenCV.</p>
-       <div class="mt-4">
-    {% if session.user_id %}
-        <a href="{{ url_for('dashboard') }}" class="btn btn-warning btn-lg px-5">Вернуться к работе</a>
-    {% else %}
-        <a href="{{ url_for('register') }}" class="btn btn-primary btn-lg px-5 me-md-2">Создать аккаунт</a>
-        <a href="{{ url_for('guest_mode') }}" class="btn btn-outline-warning btn-lg px-5">Попробовать без регистрации</a>
-    {% endif %}
-</div>
+        <p class="lead text-white-50">Интеллектуальный сервис улучшения изображений и видео на базе OpenCV.</p>
+        <div class="mt-4">
+            {% if session.user_id %}
+                <a href="{{ url_for('dashboard') }}" class="btn btn-warning btn-lg px-5">Вернуться к работе</a>
+            {% else %}
+                <a href="{{ url_for('register') }}" class="btn btn-primary btn-lg px-5 me-md-2">Создать аккаунт</a>
+                <a href="{{ url_for('guest_mode') }}" class="btn btn-outline-warning btn-lg px-5">Попробовать без регистрации</a>
+            {% endif %}
+        </div>
     </div>
 
     <div class="row g-4 py-5 row-cols-1 row-cols-md-3">
@@ -21,7 +21,7 @@
                 <span class="badge rounded-pill bg-dark border border-warning p-3 fs-3">01</span>
             </div>
             <h3 class="fs-4">Загрузка</h3>
-            <p class="text-muted">Загрузите фотографию в систему. Мы работаем с форматами PNG, JPG и JPEG.</p>
+            <p class="text-muted">Загрузите фотографию или видео в систему. Сервис работает с форматами PNG, JPG, JPEG, MP4, MOV и AVI.</p>
         </div>
         <div class="col text-center">
             <div class="mb-3">

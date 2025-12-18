@@ -3,9 +3,9 @@
     --card-bg: #1e1e1e;
     --accent: #ff9f43;
     --accent-hover: #e68a2e;
-    --text-main: #ffffff;      /* Белый текст для контраста */
-    --text-muted: #b0b0b0;     /* Светло-серый, хорошо видимый текст */
-    --border-color: #444444;   /* Заметные границы блоков */
+    --text-main: #ffffff;
+    --text-muted: #b0b0b0;
+    --border-color: #444444;
 }
 
 body {
@@ -67,11 +67,10 @@ h1, h2, h3, h4, h5, h6, .form-label {
     margin: 0 auto;
     overflow: hidden;
     background-color: #000;
-    border: 2px solid #444; /* Твой темный стиль */
+    border: 2px solid #444;
     border-radius: 8px;
 }
 
-/* Обертки ДОЛЖНЫ быть абсолютными, чтобы лежать друг на друге */
 .image-wrapper {
     position: absolute;
     top: 0;
@@ -81,7 +80,6 @@ h1, h2, h3, h4, h5, h6, .form-label {
 }
 
 .image-wrapper img {
-    /* Ширина будет управляться скриптом динамически через containerWidth */
     height: 500px;
     object-fit: contain;
     display: block;
@@ -93,9 +91,9 @@ h1, h2, h3, h4, h5, h6, .form-label {
 
 .processed {
     z-index: 2;
-    width: 50%; /* Это меняет ползунок */
+    width: 50%;
     overflow: hidden;
-    border-right: 3px solid #ff9f43; /* Твой акцентный цвет */
+    border-right: 3px solid #ff9f43;
 }
 
 .slider-button {
@@ -120,11 +118,9 @@ h1, h2, h3, h4, h5, h6, .form-label {
     cursor: ew-resize;
 }
 
-/* Таблицы */
 .table { color: var(--text-main); }
 .table-dark { --bs-table-bg: #151515; }
 
-/* Инпуты */
 .form-control {
     background-color: #252525;
     border-color: var(--border-color);

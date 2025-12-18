@@ -11,7 +11,6 @@
 
             <form method="POST" enctype="multipart/form-data" id="processingForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
                 <input type="file" name="file" class="form-control mb-4" required id="fileInput" accept=".jpg,.jpeg,.png,.mp4,.mov">
 
                 <div class="mb-3">
@@ -58,59 +57,54 @@
         </div>
 
         <h4 class="mb-3">Ваши обработки</h4>
-<div class="table-responsive bg-dark rounded shadow-sm p-2">
-    <table class="table table-dark table-hover mb-0">
-        <thead>
-            <tr>
-                <th>Дата</th>
-                <th>Параметры</th>
-                <th>Медиа</th>
-                <th class="text-end">Действие</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for img in images %}
-            {% set is_video = img.filename_processed.lower().endswith(('.mp4', '.mov', '.avi')) %}
-            <tr>
-                <td class="small">{{ img.upload_date.strftime('%d.%m %H:%M') }}</td>
-                <td class="small">Я:{{ img.brightness_beta }} К:{{ img.contrast_alpha | round(1) }}</td>
-                <td>
-                    {% if is_video %}
-                        <div class="rounded d-flex align-items-center justify-content-center bg-secondary"
-                             style="width: 40px; height: 40px; border: 1px solid #444;">
-                            <i class="bi bi-play-fill text-white"></i>
-                        </div>
-                    {% else %}
-                        <img src="{{ url_for('static', filename='uploads/' + img.filename_original) }}"
-                             width="40" height="40" class="rounded shadow-sm" style="object-fit: cover; border: 1px solid #444;">
-                    {% endif %}
-                </td>
-                <td class="text-end">
-                    <div class="d-flex justify-content-end gap-2">
-                        {% if is_video %}
-                            <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}"
-                               target="_blank" class="btn btn-outline-warning btn-sm">Смотреть</a>
-                        {% else %}
-                            <a href="{{ url_for('compare', image_id=img.id) }}" class="btn btn-outline-primary btn-sm">Сравнить</a>
-                        {% endif %}
+        <div class="table-responsive bg-dark rounded shadow-sm p-2">
+            <table class="table table-dark table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Дата</th>
+                        <th>Параметры</th>
+                        <th>Медиа</th>
+                        <th class="text-end">Действие</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for img in images %}
+                        {% set is_video = img.filename_processed.lower().endswith(('.mp4', '.mov', '.avi')) %}
+                        <tr>
+                            <td class="small">{{ img.upload_date.strftime('%d.%m %H:%M') }}</td>
+                            <td class="small">Я:{{ img.brightness_beta }} К:{{ img.contrast_alpha | round(1) }}</td>
+                            <td>
+                                {% if is_video %}
+                                    <div class="rounded d-flex align-items-center justify-content-center bg-secondary" style="width: 40px; height: 40px; border: 1px solid #444;">
+                                        <i class="bi bi-play-fill text-white"></i>
+                                    </div>
+                                {% else %}
+                                    <img src="{{ url_for('static', filename='uploads/' + img.filename_original) }}" width="40" height="40" class="rounded shadow-sm" style="object-fit: cover; border: 1px solid #444;">
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                <div class="d-flex justify-content-end gap-2">
+                                    {% if is_video %}
+                                        <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}" target="_blank" class="btn btn-outline-warning btn-sm">Смотреть</a>
+                                    {% else %}
+                                        <a href="{{ url_for('compare', image_id=img.id) }}" class="btn btn-outline-primary btn-sm">Сравнить</a>
+                                    {% endif %}
 
-                        <form action="{{ url_for('delete_image', image_id=img.id) }}" method="POST"
-                              onsubmit="return confirm('Вы уверены?');"
-                              style="display: inline;">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="btn btn-outline-danger btn-sm">Удалить</button>
-                        </form>
-                    </div>
-                </td>
-            </tr>
-            {% else %}
-            <tr>
-                <td colspan="4" class="text-center text-muted py-4">История пуста</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+                                    <form action="{{ url_for('delete_image', image_id=img.id) }}" method="POST" onsubmit="return confirm('Вы уверены?');" style="display: inline;">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm">Удалить</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted py-4">История пуста</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 {% endblock %}

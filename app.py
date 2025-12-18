@@ -2,7 +2,7 @@ import os
 import uuid
 import mysql.connector
 import io
-import cv2  # Добавили для проверки разрешения видео
+import cv2
 from PIL import Image
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_wtf.csrf import CSRFProtect
@@ -13,7 +13,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import time
 from werkzeug.utils import secure_filename
-import image_processor
+import image_processor # Импорт модуля обработки
 
 load_dotenv()
 last_cleanup_time = 0
@@ -21,7 +21,7 @@ last_cleanup_time = 0
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY')
 
-# --- 1. ЗАЩИТА CSRF ---
+# CSRF
 csrf = CSRFProtect(app)
 
 csp = {
@@ -35,16 +35,15 @@ csp = {
 
 talisman = Talisman(app, content_security_policy=csp, force_https=False)
 
-# --- 2. НАСТРОЙКИ ФАЙЛОВ ---
+# Настройка файлов
 UPLOAD_FOLDER = 'static/uploads'
-# ОБНОВИЛИ: теперь разрешаем видео-расширения здесь!
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'mp4', 'mov', 'avi'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 MAX_IMAGE_PIXELS = 4000 * 4000
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# --- 3. НАСТРОЙКА LIMITER ---
+# Настройка лимита
 limiter = Limiter(
     get_remote_address,
     app=app,
@@ -69,7 +68,7 @@ def ratelimit_handler(e):
     return render_template('login.html'), 429
 
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+# Подключение к БД
 def get_db_connection():
     return mysql.connector.connect(
         host=os.getenv('DB_HOST'),
@@ -100,13 +99,14 @@ def cleanup_old_files():
     last_cleanup_time = current_time
 
 
-# --- МАРШРУТЫ ---
+# Маршруты
 
+# Главная
 @app.route('/')
 def index():
     return render_template('welcome.html')
 
-
+# Регистрация
 @app.route('/register', methods=['GET', 'POST'])
 @limiter.limit("3 per hour", methods=["POST"])
 def register():
@@ -128,7 +128,7 @@ def register():
                 cursor.close(); db.close()
     return render_template('register.html')
 
-
+# Логин
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute", methods=["POST"])
 def login():
@@ -148,13 +148,13 @@ def login():
             cursor.close(); db.close()
     return render_template('login.html')
 
-
+# Логаут
 @app.route('/logout')
 def logout():
     session.clear()
     return redirect(url_for('index'))
 
-
+# Профиль, обработка фото и видео пользователя
 @app.route('/dashboard', methods=['GET', 'POST'])
 def dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
@@ -166,6 +166,8 @@ def dashboard():
             flash("Лимит хранения (100) исчерпан.", "error")
             return redirect(url_for('dashboard'))
 
+        # Проверка на фото или видео, проверка параметров и обработка
+
         if request.method == 'POST':
             file = request.files.get('file')
             if file and allowed_file(file.filename):
@@ -176,13 +178,13 @@ def dashboard():
                 ext = file.filename.rsplit('.', 1)[1].lower()
                 is_video_ext = ext in {'mp4', 'mov', 'avi'}
 
-                # Проверка размера
+                # Проверка размера (для видео максимум 50 мб, для фото 10 мб)
                 if (is_video_ext and file_size > 50 * 1024 * 1024) or (
                         not is_video_ext and file_size > 10 * 1024 * 1024):
                     flash("Файл слишком большой!", "error")
                     return redirect(url_for('dashboard'))
 
-                # Параметры
+                # Параметры обработки
                 if 'auto_process' in request.form:
                     params = {'denoise_h': 10.0, 'saturation_factor': 1.2, 'sharpness_factor': 1.0,
                               'contrast_alpha': 1.1, 'brightness_beta': 5.0}
@@ -204,11 +206,12 @@ def dashboard():
                         app.config['UPLOAD_FOLDER'], filename_proc)
                     file.save(p_in)
 
-                    # ДОП. ЗАЩИТА: Проверка разрешения видео (не более 1280x720)
                     v_cap = cv2.VideoCapture(p_in)
                     v_w = v_cap.get(cv2.CAP_PROP_FRAME_WIDTH)
                     v_h = v_cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
                     v_cap.release()
+
+                    # Проверка разрешения, максимум 720p
 
                     if v_w > 1280 or v_h > 720:
                         os.remove(p_in)
@@ -224,6 +227,8 @@ def dashboard():
                         flash("Видео готово!", "success")
                     else:
                         flash("Ошибка обработки видео", "error")
+
+                # Обработка фото
 
                 else:
                     file_data = file.read()
@@ -250,7 +255,7 @@ def dashboard():
     finally:
         cursor.close(); db.close()
 
-
+# Гость, обработка фото
 @app.route('/guest', methods=['GET', 'POST'])
 def guest_mode():
     cleanup_old_files()
@@ -259,7 +264,6 @@ def guest_mode():
         file = request.files.get('file')
         if file and allowed_file(file.filename):
             try:
-                # ВАЖНО: В гостевом режиме ТОЛЬКО фото (как ты и просил)
                 ext = file.filename.rsplit('.', 1)[1].lower()
                 if ext in {'mp4', 'mov', 'avi'}:
                     flash("Видео доступно только зарегистрированным пользователям!", "error")
@@ -270,6 +274,8 @@ def guest_mode():
                     if img.width * img.height > MAX_IMAGE_PIXELS:
                         flash("Изображение слишком большое!", "error")
                         return redirect(request.url)
+
+                # Обработка фото
 
                 if 'auto_process' in request.form:
                     params = {'denoise_h': 10.0, 'saturation_factor': 1.2, 'sharpness_factor': 1.0,
@@ -295,7 +301,7 @@ def guest_mode():
             flash("Выберите фото!", "error")
     return render_template('guest.html', processed_url=processed_url)
 
-
+# Сравнение фото
 @app.route('/compare/<int:image_id>')
 def compare(image_id):
     if 'user_id' not in session: return redirect(url_for('login'))
@@ -308,7 +314,7 @@ def compare(image_id):
     if not image: return redirect(url_for('dashboard'))
     return render_template('compare.html', image=image)
 
-
+# Удаление фото и видео
 @app.route('/delete/<int:image_id>', methods=['POST'])
 def delete_image(image_id):
     if 'user_id' not in session: return redirect(url_for('login'))
@@ -328,7 +334,6 @@ def delete_image(image_id):
     finally:
         cursor.close(); db.close()
     return redirect(url_for('dashboard'))
-
 
 if __name__ == '__main__':
     app.run(debug=False)

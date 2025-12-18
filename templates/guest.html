@@ -8,17 +8,15 @@
             <p class="text-muted small">
                 Регулируйте параметры для предпросмотра. Полный эффект (Резкость и Шум) будет виден после обработки. Временные файлы удалятся при выходе.
             </p>
-
             <form method="POST" enctype="multipart/form-data" id="processingForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                 <div class="mb-4">
-                   <div class="alert alert-warning py-2 mb-2" style="font-size: 0.8rem;">
-                       <strong>Заметка:</strong> Работа с видео доступна только зарегистрированным пользователям.
-                   </div>
-
-                   <label class="form-label">Выберите фото</label>
-                   <input type="file" name="file" class="form-control" required id="fileInput" accept=".jpg,.jpeg,.png">
+                    <div class="alert alert-warning py-2 mb-2" style="font-size: 0.8rem;">
+                        <strong>Заметка:</strong> Работа с видео доступна только зарегистрированным пользователям.
+                    </div>
+                    <label class="form-label">Выберите фото</label>
+                    <input type="file" name="file" class="form-control" required id="fileInput" accept=".jpg,.jpeg,.png">
                 </div>
 
                 <div class="mb-3">
