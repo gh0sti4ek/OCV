@@ -1,6 +1,29 @@
-.env
+# Настройки редакторов
 .idea/
-__pycache__/
-static/uploads/*
-*.pyc
 .vscode/
+*.swp
+*.sublime-project
+
+# Python (служебные файлы)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+
+# Переменные окружения (САМОЕ ВАЖНОЕ)
+.env
+.flaskenv
+
+# Данные и загрузки
+static/uploads/*
+!static/uploads/.gitkeep
+*.db
+*.sqlite
+
+# Логи
+*.log
