@@ -1,69 +1,66 @@
 document.addEventListener('DOMContentLoaded', function() {
-    // Поменяли название в логах, раз теперь проект OCV
     console.log("--- OCV: Инициализация ---");
 
-    // === ЭЛЕМЕНТЫ ===
+    // === 1. ОБЩИЕ ЭЛЕМЕНТЫ ===
     const fileInput = document.getElementById('fileInput');
     const imagePreview = document.getElementById('imagePreview');
-    const placeholder = document.getElementById('previewPlaceholder') || document.getElementById('previewText');
+    const placeholder = document.getElementById('previewPlaceholder');
     const resetBtn = document.getElementById('resetSettings');
 
-    // === ЧАСТЬ 1: ПРЕДПРОСМОТР И ЖИВЫЕ ФИЛЬТРЫ ===
-
+    // === 2. ФУНКЦИЯ ЖИВЫХ ФИЛЬТРОВ (ДЛЯ ПРЕДПРОСМОТРА) ===
     function applyLiveFilters() {
         if (!imagePreview) return;
 
-        // Поиск элементов с проверкой на существование
-        const elB = document.getElementById('brightness_beta');
-        const elC = document.getElementById('contrast_alpha');
-        const elS = document.getElementById('saturation_factor');
-        const elD = document.getElementById('denoise_h');
-        const elSh = document.getElementById('sharpness_factor');
+        const b = document.getElementById('brightness_beta')?.value || 15;
+        const c = document.getElementById('contrast_alpha')?.value || 1.15;
+        const s = document.getElementById('saturation_factor')?.value || 1.3;
+        const d = document.getElementById('denoise_h')?.value || 15.0;
 
-        // Если ползунков нет на странице (например, в другом режиме), берем дефолты
-        const b = elB ? elB.value : 15;
-        const c = elC ? elC.value : 1.15;
-        const s = elS ? elS.value : 1.3;
-        const d = elD ? elD.value : 15.0;
-        const sh = elSh ? elSh.value : 1.0;
-
-        // Обновляем текст только если индикатор существует
+        // Обновляем текст индикаторов
         if(document.getElementById('brightnessValue')) document.getElementById('brightnessValue').innerText = b;
         if(document.getElementById('contrastValue')) document.getElementById('contrastValue').innerText = c;
         if(document.getElementById('saturationValue')) document.getElementById('saturationValue').innerText = s;
         if(document.getElementById('denoiseValue')) document.getElementById('denoiseValue').innerText = d;
-        if(document.getElementById('sharpnessValue')) document.getElementById('sharpnessValue').innerText = sh;
 
-        // Применяем визуальные эффекты
+        // Визуальная симуляция через CSS
         const brightCSS = (100 + parseInt(b)) / 100;
         const blurCSS = d / 40;
-
         imagePreview.style.filter = `brightness(${brightCSS}) contrast(${c}) saturate(${s}) blur(${blurCSS}px)`;
     }
 
-    // Логика загрузки файла (теперь универсальная)
+    // === 3. ЛОГИКА ЗАГРУЗКИ И ОТОБРАЖЕНИЯ ФАЙЛА ===
     if (fileInput && imagePreview) {
         fileInput.addEventListener('change', function() {
             const file = this.files[0];
             if (file) {
                 const reader = new FileReader();
                 reader.onload = function(e) {
+                    // Устанавливаем фото
                     imagePreview.src = e.target.result;
+
+                    // ГАРАНТИРОВАННО ПОКАЗЫВАЕМ (убираем d-none и форсируем display)
                     imagePreview.classList.remove('d-none');
-                    if (placeholder) placeholder.classList.add('d-none');
+                    imagePreview.style.display = 'block';
+
+                    // Скрываем плейсхолдер
+                    if (placeholder) {
+                        placeholder.classList.add('d-none');
+                        placeholder.style.display = 'none';
+                    }
+
                     applyLiveFilters();
                 }
                 reader.readAsDataURL(file);
             }
         });
 
-        // Слушаем изменения всех ползунков
+        // Слушаем ползунки
         document.querySelectorAll('.form-range').forEach(slider => {
             slider.addEventListener('input', applyLiveFilters);
         });
     }
 
-    // === ЛОГИКА КНОПКИ СБРОСА ===
+    // === 4. КНОПКА СБРОСА ===
     if (resetBtn) {
         resetBtn.addEventListener('click', function() {
             const defaults = {
@@ -73,7 +70,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 'denoise_h': 15.0,
                 'sharpness_factor': 1.0
             };
-
             for (let id in defaults) {
                 const slider = document.getElementById(id);
                 if (slider) slider.value = defaults[id];
@@ -82,7 +78,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // === ЧАСТЬ 2: СЛАЙДЕР СРАВНЕНИЯ ===
+    // === 5. СЛАЙДЕР СРАВНЕНИЯ (ДО/ПОСЛЕ) ===
+    // Эта часть отвечает за страницу compare.html
     const compSlider = document.getElementById('slider');
     const processedWrapper = document.getElementById('processedImage');
     const container = document.querySelector('.comparison-container');
@@ -101,9 +98,8 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         };
 
-        window.moveSlider = syncSlider;
         compSlider.addEventListener('input', syncSlider);
         window.addEventListener('resize', syncSlider);
-        syncSlider();
+        syncSlider(); // Инициализация при загрузке
     }
 });
