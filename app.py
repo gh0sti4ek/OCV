@@ -203,6 +203,7 @@ def dashboard():
     try:
         cursor = db.cursor(dictionary=True)
 
+        # Проверка лимита (уже была в вашем коде)
         cursor.execute("SELECT COUNT(*) as count FROM images WHERE user_id = %s", (session['user_id'],))
         if cursor.fetchone()['count'] > 100:
             flash("Лимит хранения (100 фото) исчерпан. Удалите старые фото.", "error")
@@ -216,6 +217,7 @@ def dashboard():
                 try:
                     file_stream = file.read()
 
+                    # Безопасная проверка размера изображения
                     with Image.open(io.BytesIO(file_stream)) as img:
                         if img.width * img.height > MAX_IMAGE_PIXELS:
                             flash("Изображение слишком большое!", "error")
@@ -224,24 +226,39 @@ def dashboard():
                         img_format_raw = img.format.lower() if img.format else 'jpeg'
                         safe_ext = ALLOWED_FORMATS.get(img_format_raw, 'jpg')
 
-                    # БЕЗОПАСНОЕ ЧТЕНИЕ ПАРАМЕТРОВ
-                    try:
+                    # ВЫБОР ПАРАМЕТРОВ: Авто или Вручную
+                    if 'auto_process' in request.form:
                         params = {
-                            'denoise_h': max(0.0, min(float(request.form.get('denoise_h', 15.0)), 20.0)),
-                            'saturation_factor': max(0.5, min(float(request.form.get('saturation_factor', 1.3)), 2.0)),
-                            'sharpness_factor': max(0.0, min(float(request.form.get('sharpness_factor', 1.0)), 3.0)),
-                            'contrast_alpha': max(1.0, min(float(request.form.get('contrast_alpha', 1.15)), 3.0)),
-                            'brightness_beta': max(-100.0, min(float(request.form.get('brightness_beta', 15)), 100.0))
+                            'denoise_h': 10.0,
+                            'saturation_factor': 1.2,
+                            'sharpness_factor': 1.0,
+                            'contrast_alpha': 1.1,
+                            'brightness_beta': 5.0
                         }
-                    except (ValueError, TypeError):
-                        flash("Некорректные числовые параметры", "error")
-                        return redirect(request.url)
+                    else:
+                        # Чтение из ползунков с защитой от некорректных данных
+                        try:
+                            params = {
+                                'denoise_h': max(0.0, min(float(request.form.get('denoise_h', 15.0)), 20.0)),
+                                'saturation_factor': max(0.5,
+                                                         min(float(request.form.get('saturation_factor', 1.3)), 2.0)),
+                                'sharpness_factor': max(0.0,
+                                                        min(float(request.form.get('sharpness_factor', 1.0)), 3.0)),
+                                'contrast_alpha': max(1.0, min(float(request.form.get('contrast_alpha', 1.15)), 3.0)),
+                                'brightness_beta': max(-100.0,
+                                                       min(float(request.form.get('brightness_beta', 15)), 100.0))
+                            }
+                        except (ValueError, TypeError):
+                            flash("Некорректные числовые параметры", "error")
+                            return redirect(request.url)
 
+                    # Сохранение оригинала
                     filename_uuid = f"{uuid.uuid4().hex}.{safe_ext}"
                     path_original = os.path.join(app.config['UPLOAD_FOLDER'], filename_uuid)
                     with open(path_original, 'wb') as f:
                         f.write(file_stream)
 
+                    # Обработка
                     processed_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_stream), **params)
 
                     if processed_io:
@@ -250,6 +267,7 @@ def dashboard():
                         with open(path_processed, 'wb') as f_out:
                             f_out.write(processed_io.getbuffer())
 
+                        # Запись в БД
                         cursor.execute(
                             "INSERT INTO images (user_id, filename_original, filename_processed, brightness_beta, contrast_alpha) VALUES (%s, %s, %s, %s, %s)",
                             (session['user_id'], filename_uuid, filename_processed, params['brightness_beta'],
@@ -263,19 +281,19 @@ def dashboard():
             else:
                 flash("Неверный формат файла", "error")
 
+        # Получение списка изображений для таблицы
         cursor.execute("SELECT * FROM images WHERE user_id = %s ORDER BY upload_date DESC", (session['user_id'],))
         images = cursor.fetchall()
         return render_template('dashboard.html', images=images)
 
     finally:
-        # Это выполнится ВСЕГДА, даже если код упал с ошибкой в середине
         cursor.close()
         db.close()
 
 
 @app.route('/guest', methods=['GET', 'POST'])
 def guest_mode():
-    cleanup_old_files()  # Очистка старых гостевых файлов
+    cleanup_old_files()
     processed_url = None
 
     if request.method == 'POST':
@@ -285,35 +303,47 @@ def guest_mode():
             try:
                 file_stream = file.read()
 
-                # Проверка безопасности (размер и формат)
+                # Проверка размера с автоматическим закрытием дескриптора
                 with Image.open(io.BytesIO(file_stream)) as img:
                     width, height = img.size
                     if width * height > MAX_IMAGE_PIXELS:
                         flash(f"Изображение слишком большое. Максимум 4000x4000.", "error")
                         return redirect(request.url)
 
-                # Валидация параметров
-                params = {
-                    'denoise_h': max(0.0, min(float(request.form.get('denoise_h', 15.0)), 20.0)),
-                    'saturation_factor': max(0.5, min(float(request.form.get('saturation_factor', 1.3)), 2.0)),
-                    'sharpness_factor': max(0.0, min(float(request.form.get('sharpness_factor', 1.0)), 3.0)),
-                    'contrast_alpha': max(1.0, min(float(request.form.get('contrast_alpha', 1.15)), 3.0)),
-                    'brightness_beta': max(-100.0, min(float(request.form.get('brightness_beta', 15)), 100.0))
-                }
+                # Проверяем, какая кнопка была нажата
+                if 'auto_process' in request.form:
+                    # Эталонные параметры для "умной" обработки
+                    params = {
+                        'denoise_h': 10.0,
+                        'saturation_factor': 1.2,
+                        'sharpness_factor': 1.0,
+                        'contrast_alpha': 1.1,
+                        'brightness_beta': 5.0
+                    }
+                else:
+                    # Чтение параметров из ползунков с валидацией
+                    params = {
+                        'denoise_h': max(0.0, min(float(request.form.get('denoise_h', 15.0)), 20.0)),
+                        'saturation_factor': max(0.5, min(float(request.form.get('saturation_factor', 1.3)), 2.0)),
+                        'sharpness_factor': max(0.0, min(float(request.form.get('sharpness_factor', 1.0)), 3.0)),
+                        'contrast_alpha': max(1.0, min(float(request.form.get('contrast_alpha', 1.15)), 3.0)),
+                        'brightness_beta': max(-100.0, min(float(request.form.get('brightness_beta', 15)), 100.0))
+                    }
 
-                # Обработка через image_processor
+                # Обработка изображения
                 processed_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_stream), **params)
 
                 if processed_io:
-                    # Для гостей сохраняем файл с префиксом guest_ для последующей очистки
                     filename = f"guest_{uuid.uuid4().hex}.jpg"
                     path_processed = os.path.join(app.config['UPLOAD_FOLDER'], filename)
 
                     with open(path_processed, 'wb') as f_out:
                         f_out.write(processed_io.getbuffer())
                     processed_url = filename
+
             except Exception as e:
-                flash(f"Ошибка при обработке: {e}", "error")
+                print(f"Ошибка гостевого режима: {e}")  # Для отладки
+                flash(f"Произошла ошибка при обработке.", "error")
         else:
             flash("Выберите корректный файл изображения!", "error")
 

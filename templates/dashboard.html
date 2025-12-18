@@ -78,7 +78,18 @@
                                  width="40" height="40" class="rounded shadow-sm" style="object-fit: cover; border: 1px solid #444;">
                         </td>
                         <td class="text-end">
-                            <a href="{{ url_for('compare', image_id=img.id) }}" class="btn btn-outline-primary btn-sm">Сравнить</a>
+                            <div class="d-flex justify-content-end gap-2">
+                                <a href="{{ url_for('compare', image_id=img.id) }}" class="btn btn-outline-primary btn-sm">Сравнить</a>
+
+                                <form action="{{ url_for('delete_image', image_id=img.id) }}" method="POST"
+                                      onsubmit="return confirm('Вы уверены, что хотите безвозвратно удалить это фото?');"
+                                      style="display: inline;">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        Удалить
+                                    </button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     {% else %}
