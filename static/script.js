@@ -22,10 +22,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if(document.getElementById('saturationValue')) document.getElementById('saturationValue').innerText = s;
         if(document.getElementById('denoiseValue')) document.getElementById('denoiseValue').innerText = d;
 
-        // Визуальная симуляция через CSS
-        const brightCSS = (100 + parseInt(b)) / 100;
-        const blurCSS = d / 40;
-        imagePreview.style.filter = `brightness(${brightCSS}) contrast(${c}) saturate(${s}) blur(${blurCSS}px)`;
+        // Визуальная симуляция через CSS (только если это не видео-заглушка)
+        if (!imagePreview.dataset.isVideo) {
+            const brightCSS = (100 + parseInt(b)) / 100;
+            const blurCSS = d / 40;
+            imagePreview.style.filter = `brightness(${brightCSS}) contrast(${c}) saturate(${s}) blur(${blurCSS}px)`;
+        } else {
+            imagePreview.style.filter = 'none';
+        }
     }
 
     // === 3. ЛОГИКА ЗАГРУЗКИ И ОТОБРАЖЕНИЯ ФАЙЛА ===
@@ -33,28 +37,39 @@ document.addEventListener('DOMContentLoaded', function() {
         fileInput.addEventListener('change', function() {
             const file = this.files[0];
             if (file) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    // Устанавливаем фото
-                    imagePreview.src = e.target.result;
+                // ПРОВЕРКА: Видео это или Фото?
+                const isVideo = file.type.startsWith('video/');
 
-                    // ГАРАНТИРОВАННО ПОКАЗЫВАЕМ (убираем d-none и форсируем display)
-                    imagePreview.classList.remove('d-none');
-                    imagePreview.style.display = 'block';
-
-                    // Скрываем плейсхолдер
-                    if (placeholder) {
-                        placeholder.classList.add('d-none');
-                        placeholder.style.display = 'none';
+                if (isVideo) {
+                    // Если видео — ставим заглушку, так как живой превью видео через CSS фильтры в реальном времени может тормозить
+                    imagePreview.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' fill='%23666' viewBox='0 0 16 16'%3E%3Cpath d='M0 1a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V1zm4 0v6h8V1H4zm8 8H4v6h8V9zM1 1v2h2V1H1zm2 3H1v2h2V4zM1 7v2h2V7H1zm2 3H1v2h2v-2zm-2 3v2h2v-2H1zM15 1h-2v2h2V1zm-2 3v2h2V4h-2zm2 3h-2v2h2V7zm-2 3v2h2v-2h-2zm2 3h-2v2h2v-2z'/%3E%3C/svg%3E";
+                    imagePreview.dataset.isVideo = "true";
+                    if (placeholder) placeholder.innerHTML = "<p class='text-warning'>Предпросмотр видео недоступен.<br>Нажмите 'Обработать', чтобы увидеть результат.</p>";
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        imagePreview.src = e.target.result;
+                        delete imagePreview.dataset.isVideo;
+                        if (placeholder) placeholder.innerHTML = "<p>Выберите фото для предпросмотра</p>";
+                        applyLiveFilters();
                     }
-
-                    applyLiveFilters();
+                    reader.readAsDataURL(file);
                 }
-                reader.readAsDataURL(file);
+
+                imagePreview.classList.remove('d-none');
+                imagePreview.style.display = 'block';
+                if (placeholder) {
+                    placeholder.classList.add('d-none');
+                    placeholder.style.display = 'none';
+                    if (isVideo) {
+                        placeholder.classList.remove('d-none');
+                        placeholder.style.display = 'block';
+                    }
+                }
+                applyLiveFilters();
             }
         });
 
-        // Слушаем ползунки
         document.querySelectorAll('.form-range').forEach(slider => {
             slider.addEventListener('input', applyLiveFilters);
         });
@@ -79,7 +94,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // === 5. СЛАЙДЕР СРАВНЕНИЯ (ДО/ПОСЛЕ) ===
-    // Эта часть отвечает за страницу compare.html
     const compSlider = document.getElementById('slider');
     const processedWrapper = document.getElementById('processedImage');
     const container = document.querySelector('.comparison-container');
@@ -100,6 +114,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
         compSlider.addEventListener('input', syncSlider);
         window.addEventListener('resize', syncSlider);
-        syncSlider(); // Инициализация при загрузке
+        syncSlider();
     }
 });

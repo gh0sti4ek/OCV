@@ -2,6 +2,7 @@ import os
 import uuid
 import mysql.connector
 import io
+import cv2  # Добавили для проверки разрешения видео
 from PIL import Image
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_wtf.csrf import CSRFProtect
@@ -25,40 +26,25 @@ csrf = CSRFProtect(app)
 
 csp = {
     'default-src': '\'self\'',
-    'style-src': [
-        '\'self\'',
-        'https://cdn.jsdelivr.net',
-        '\'unsafe-inline\''  # РАЗРЕШАЕМ инлайновые стили для фильтров JS
-    ],
-    'script-src': [
-        '\'self\'',
-        'https://cdn.jsdelivr.net'
-    ],
-    'img-src': [
-        '\'self\'',
-        'data:',             # РАЗРЕШАЕМ предпросмотр через FileReader (base64)
-        'blob:'
-    ],
-    'connect-src': [
-        '\'self\'',
-        'https://cdn.jsdelivr.net' # Чтобы Bootstrap не ругался на .map файлы
-    ]
+    'style-src': ['\'self\'', 'https://cdn.jsdelivr.net', '\'unsafe-inline\''],
+    'script-src': ['\'self\'', 'https://cdn.jsdelivr.net'],
+    'img-src': ['\'self\'', 'data:', 'blob:'],
+    'media-src': ['\'self\'', 'blob:'],  # РАЗРЕШАЕМ видео
+    'connect-src': ['\'self\'', 'https://cdn.jsdelivr.net']
 }
 
-# Если работаешь локально (без https), оставь force_https=False
 talisman = Talisman(app, content_security_policy=csp, force_https=False)
-
-
 
 # --- 2. НАСТРОЙКИ ФАЙЛОВ ---
 UPLOAD_FOLDER = 'static/uploads'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+# ОБНОВИЛИ: теперь разрешаем видео-расширения здесь!
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'mp4', 'mov', 'avi'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 MAX_IMAGE_PIXELS = 4000 * 4000
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# --- 3. НАСТРОЙКА LIMITER (Защита от перебора) ---
+# --- 3. НАСТРОЙКА LIMITER ---
 limiter = Limiter(
     get_remote_address,
     app=app,
@@ -71,25 +57,19 @@ limiter = Limiter(
 
 @limiter.request_filter
 def ip_whitelist():
-    # Не лимитируем статические файлы, чтобы не блокировать верстку
     return request.path.startswith('/static/')
 
 
 @app.errorhandler(429)
 def ratelimit_handler(e):
-    # ОЧИСТКА: Удаляем все накопленные сообщения ("Неверный пароль" и т.д.)
     session.pop('_flashes', None)
-
     flash("Слишком много попыток! Пожалуйста, подождите немного.", "error")
-
-    # ПРЯМОЙ ВЫВОД: Возвращаем шаблон напрямую, а не через redirect,
-    # чтобы избежать ошибки "Too many redirects"
     if "register" in request.path:
         return render_template('register.html'), 429
     return render_template('login.html'), 429
 
 
-# --- Вспомогательные функции ---
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def get_db_connection():
     return mysql.connector.connect(
         host=os.getenv('DB_HOST'),
@@ -106,24 +86,19 @@ def allowed_file(filename):
 def cleanup_old_files():
     global last_cleanup_time
     current_time = time.time()
-
-    # Очищаем папку не чаще чем раз в 10 минут (600 секунд)
     if current_time - last_cleanup_time < 600:
         return
-
-    print("Запуск плановой очистки временных файлов...")
     now = time.time()
     for f in os.listdir(app.config['UPLOAD_FOLDER']):
-        # Удаляем только гостевые файлы старше 15 минут
         if f.startswith("guest_"):
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], f)
             if os.stat(file_path).st_mtime < now - 900:
                 try:
                     os.remove(file_path)
                 except OSError:
-                    pass  # Файл может быть занят другим процессом
-
+                    pass
     last_cleanup_time = current_time
+
 
 # --- МАРШРУТЫ ---
 
@@ -133,15 +108,11 @@ def index():
 
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("3 per hour", methods=["POST"])  # Лимит только на POST
+@limiter.limit("3 per hour", methods=["POST"])
 def register():
-    if 'user_id' in session:
-        return redirect(url_for('dashboard'))
-
+    if 'user_id' in session: return redirect(url_for('dashboard'))
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-
+        username, password = request.form.get('username'), request.form.get('password')
         if username and password:
             hashed_pw = generate_password_hash(password)
             db = get_db_connection()
@@ -152,39 +123,29 @@ def register():
                 flash("Регистрация успешна!", "success")
                 return redirect(url_for('login'))
             except mysql.connector.Error:
-                flash("Ошибка: возможно, имя уже занято", "error")
+                flash("Ошибка: имя занято", "error")
             finally:
-                cursor.close()
-                db.close()
+                cursor.close(); db.close()
     return render_template('register.html')
 
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute", methods=["POST"])
 def login():
-    if 'user_id' in session:
-        return redirect(url_for('dashboard'))
-
+    if 'user_id' in session: return redirect(url_for('dashboard'))
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-
+        username, password = request.form.get('username'), request.form.get('password')
         db = get_db_connection()
         try:
             cursor = db.cursor(dictionary=True)
             cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
             user = cursor.fetchone()
-
             if user and check_password_hash(user['password'], password):
-                session['user_id'] = user['id']
-                session['username'] = user['username']
+                session['user_id'], session['username'] = user['id'], user['username']
                 return redirect(url_for('dashboard'))
-
             flash("Неверный логин или пароль", "error")
         finally:
-            cursor.close()
-            db.close()
-
+            cursor.close(); db.close()
     return render_template('login.html')
 
 
@@ -196,132 +157,124 @@ def logout():
 
 @app.route('/dashboard', methods=['GET', 'POST'])
 def dashboard():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    if 'user_id' not in session: return redirect(url_for('login'))
     db = get_db_connection()
     try:
         cursor = db.cursor(dictionary=True)
-
-        # Проверка лимита (уже была в вашем коде)
         cursor.execute("SELECT COUNT(*) as count FROM images WHERE user_id = %s", (session['user_id'],))
         if cursor.fetchone()['count'] > 100:
-            flash("Лимит хранения (100 фото) исчерпан. Удалите старые фото.", "error")
+            flash("Лимит хранения (100) исчерпан.", "error")
             return redirect(url_for('dashboard'))
 
         if request.method == 'POST':
             file = request.files.get('file')
-            ALLOWED_FORMATS = {'jpeg': 'jpg', 'jpg': 'jpg', 'png': 'png'}
-
             if file and allowed_file(file.filename):
-                try:
-                    file_stream = file.read()
+                file.seek(0, os.SEEK_END)
+                file_size = file.tell()
+                file.seek(0)
 
-                    # Безопасная проверка размера изображения
-                    with Image.open(io.BytesIO(file_stream)) as img:
-                        if img.width * img.height > MAX_IMAGE_PIXELS:
-                            flash("Изображение слишком большое!", "error")
-                            return redirect(request.url)
+                ext = file.filename.rsplit('.', 1)[1].lower()
+                is_video_ext = ext in {'mp4', 'mov', 'avi'}
 
-                        img_format_raw = img.format.lower() if img.format else 'jpeg'
-                        safe_ext = ALLOWED_FORMATS.get(img_format_raw, 'jpg')
+                # Проверка размера
+                if (is_video_ext and file_size > 50 * 1024 * 1024) or (
+                        not is_video_ext and file_size > 10 * 1024 * 1024):
+                    flash("Файл слишком большой!", "error")
+                    return redirect(url_for('dashboard'))
 
-                    # ВЫБОР ПАРАМЕТРОВ: Авто или Вручную
-                    if 'auto_process' in request.form:
-                        params = {
-                            'denoise_h': 10.0,
-                            'saturation_factor': 1.2,
-                            'sharpness_factor': 1.0,
-                            'contrast_alpha': 1.1,
-                            'brightness_beta': 5.0
-                        }
-                    else:
-                        # Чтение из ползунков с защитой от некорректных данных
-                        try:
-                            params = {
-                                'denoise_h': max(0.0, min(float(request.form.get('denoise_h', 15.0)), 20.0)),
-                                'saturation_factor': max(0.5,
-                                                         min(float(request.form.get('saturation_factor', 1.3)), 2.0)),
-                                'sharpness_factor': max(0.0,
-                                                        min(float(request.form.get('sharpness_factor', 1.0)), 3.0)),
-                                'contrast_alpha': max(1.0, min(float(request.form.get('contrast_alpha', 1.15)), 3.0)),
-                                'brightness_beta': max(-100.0,
-                                                       min(float(request.form.get('brightness_beta', 15)), 100.0))
-                            }
-                        except (ValueError, TypeError):
-                            flash("Некорректные числовые параметры", "error")
-                            return redirect(request.url)
+                # Параметры
+                if 'auto_process' in request.form:
+                    params = {'denoise_h': 10.0, 'saturation_factor': 1.2, 'sharpness_factor': 1.0,
+                              'contrast_alpha': 1.1, 'brightness_beta': 5.0}
+                else:
+                    params = {
+                        'denoise_h': float(request.form.get('denoise_h', 15.0)),
+                        'saturation_factor': float(request.form.get('saturation_factor', 1.3)),
+                        'sharpness_factor': float(request.form.get('sharpness_factor', 1.0)),
+                        'contrast_alpha': float(request.form.get('contrast_alpha', 1.15)),
+                        'brightness_beta': float(request.form.get('brightness_beta', 15))
+                    }
 
-                    # Сохранение оригинала
-                    filename_uuid = f"{uuid.uuid4().hex}.{safe_ext}"
-                    path_original = os.path.join(app.config['UPLOAD_FOLDER'], filename_uuid)
-                    with open(path_original, 'wb') as f:
-                        f.write(file_stream)
+                u_id = uuid.uuid4().hex
 
-                    # Обработка
-                    processed_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_stream), **params)
+                if is_video_ext:
+                    filename_orig = f"raw_{u_id}.{ext}"
+                    filename_proc = f"proc_{u_id}.mp4"
+                    p_in, p_out = os.path.join(app.config['UPLOAD_FOLDER'], filename_orig), os.path.join(
+                        app.config['UPLOAD_FOLDER'], filename_proc)
+                    file.save(p_in)
 
-                    if processed_io:
-                        filename_processed = f"proc_{uuid.uuid4().hex}.jpg"
-                        path_processed = os.path.join(app.config['UPLOAD_FOLDER'], filename_processed)
-                        with open(path_processed, 'wb') as f_out:
-                            f_out.write(processed_io.getbuffer())
+                    # ДОП. ЗАЩИТА: Проверка разрешения видео (не более 1280x720)
+                    v_cap = cv2.VideoCapture(p_in)
+                    v_w = v_cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+                    v_h = v_cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                    v_cap.release()
 
-                        # Запись в БД
+                    if v_w > 1280 or v_h > 720:
+                        os.remove(p_in)
+                        flash("Разрешение видео слишком высокое! Максимум 720p.", "error")
+                        return redirect(url_for('dashboard'))
+
+                    if image_processor.process_video(p_in, p_out, **params):
                         cursor.execute(
-                            "INSERT INTO images (user_id, filename_original, filename_processed, brightness_beta, contrast_alpha) VALUES (%s, %s, %s, %s, %s)",
-                            (session['user_id'], filename_uuid, filename_processed, params['brightness_beta'],
-                             params['contrast_alpha'])
-                        )
+                            "INSERT INTO images (user_id, filename_original, filename_processed, brightness_beta, contrast_alpha) VALUES (%s,%s,%s,%s,%s)",
+                            (session['user_id'], filename_orig, filename_proc, params['brightness_beta'],
+                             params['contrast_alpha']))
                         db.commit()
-                        flash("Готово!", "success")
-                except Exception as e:
-                    print(f"Processing error: {e}")
-                    flash("Ошибка при обработке изображения", "error")
-            else:
-                flash("Неверный формат файла", "error")
+                        flash("Видео готово!", "success")
+                    else:
+                        flash("Ошибка обработки видео", "error")
 
-        # Получение списка изображений для таблицы
+                else:
+                    file_data = file.read()
+                    filename_orig = f"{u_id}.{ext}"
+                    p_orig = os.path.join(app.config['UPLOAD_FOLDER'], filename_orig)
+                    with open(p_orig, 'wb') as f:
+                        f.write(file_data)
+
+                    proc_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_data), **params)
+                    if proc_io:
+                        filename_proc = f"proc_{u_id}.jpg"
+                        p_proc = os.path.join(app.config['UPLOAD_FOLDER'], filename_proc)
+                        with open(p_proc, 'wb') as f_out: f_out.write(proc_io.getbuffer())
+                        cursor.execute(
+                            "INSERT INTO images (user_id, filename_original, filename_processed, brightness_beta, contrast_alpha) VALUES (%s,%s,%s,%s,%s)",
+                            (session['user_id'], filename_orig, filename_proc, params['brightness_beta'],
+                             params['contrast_alpha']))
+                        db.commit()
+                        flash("Фото готово!", "success")
+
         cursor.execute("SELECT * FROM images WHERE user_id = %s ORDER BY upload_date DESC", (session['user_id'],))
         images = cursor.fetchall()
         return render_template('dashboard.html', images=images)
-
     finally:
-        cursor.close()
-        db.close()
+        cursor.close(); db.close()
 
 
 @app.route('/guest', methods=['GET', 'POST'])
 def guest_mode():
     cleanup_old_files()
     processed_url = None
-
     if request.method == 'POST':
         file = request.files.get('file')
-
         if file and allowed_file(file.filename):
             try:
-                file_stream = file.read()
+                # ВАЖНО: В гостевом режиме ТОЛЬКО фото (как ты и просил)
+                ext = file.filename.rsplit('.', 1)[1].lower()
+                if ext in {'mp4', 'mov', 'avi'}:
+                    flash("Видео доступно только зарегистрированным пользователям!", "error")
+                    return redirect(url_for('guest_mode'))
 
-                # Проверка размера с автоматическим закрытием дескриптора
+                file_stream = file.read()
                 with Image.open(io.BytesIO(file_stream)) as img:
-                    width, height = img.size
-                    if width * height > MAX_IMAGE_PIXELS:
-                        flash(f"Изображение слишком большое. Максимум 4000x4000.", "error")
+                    if img.width * img.height > MAX_IMAGE_PIXELS:
+                        flash("Изображение слишком большое!", "error")
                         return redirect(request.url)
 
-                # Проверяем, какая кнопка была нажата
                 if 'auto_process' in request.form:
-                    # Эталонные параметры для "умной" обработки
-                    params = {
-                        'denoise_h': 10.0,
-                        'saturation_factor': 1.2,
-                        'sharpness_factor': 1.0,
-                        'contrast_alpha': 1.1,
-                        'brightness_beta': 5.0
-                    }
+                    params = {'denoise_h': 10.0, 'saturation_factor': 1.2, 'sharpness_factor': 1.0,
+                              'contrast_alpha': 1.1, 'brightness_beta': 5.0}
                 else:
-                    # Чтение параметров из ползунков с валидацией
                     params = {
                         'denoise_h': max(0.0, min(float(request.form.get('denoise_h', 15.0)), 20.0)),
                         'saturation_factor': max(0.5, min(float(request.form.get('saturation_factor', 1.3)), 2.0)),
@@ -330,73 +283,50 @@ def guest_mode():
                         'brightness_beta': max(-100.0, min(float(request.form.get('brightness_beta', 15)), 100.0))
                     }
 
-                # Обработка изображения
-                processed_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_stream), **params)
-
-                if processed_io:
+                proc_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_stream), **params)
+                if proc_io:
                     filename = f"guest_{uuid.uuid4().hex}.jpg"
-                    path_processed = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
-                    with open(path_processed, 'wb') as f_out:
-                        f_out.write(processed_io.getbuffer())
+                    with open(os.path.join(app.config['UPLOAD_FOLDER'], filename), 'wb') as f: f.write(
+                        proc_io.getbuffer())
                     processed_url = filename
-
             except Exception as e:
-                print(f"Ошибка гостевого режима: {e}")  # Для отладки
-                flash(f"Произошла ошибка при обработке.", "error")
+                flash("Ошибка обработки", "error")
         else:
-            flash("Выберите корректный файл изображения!", "error")
-
+            flash("Выберите фото!", "error")
     return render_template('guest.html', processed_url=processed_url)
 
 
 @app.route('/compare/<int:image_id>')
 def compare(image_id):
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
+    if 'user_id' not in session: return redirect(url_for('login'))
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
     cursor.execute("SELECT * FROM images WHERE id = %s AND user_id = %s", (image_id, session['user_id']))
     image = cursor.fetchone()
-    cursor.close()
+    cursor.close();
     db.close()
-    if not image:
-        flash("Доступ запрещен", "error")
-        return redirect(url_for('dashboard'))
+    if not image: return redirect(url_for('dashboard'))
     return render_template('compare.html', image=image)
 
 
 @app.route('/delete/<int:image_id>', methods=['POST'])
 def delete_image(image_id):
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    if 'user_id' not in session: return redirect(url_for('login'))
     db = get_db_connection()
     try:
         cursor = db.cursor(dictionary=True)
-        # Проверяем, что картинка принадлежит именно этому пользователю
         cursor.execute("SELECT filename_original, filename_processed FROM images WHERE id = %s AND user_id = %s",
                        (image_id, session['user_id']))
         image = cursor.fetchone()
-
         if image:
-            # 1. Удаляем из БД
             cursor.execute("DELETE FROM images WHERE id = %s", (image_id,))
             db.commit()
-
-            # 2. Удаляем файлы с диска
             for key in ['filename_original', 'filename_processed']:
-                file_path = os.path.join(app.config['UPLOAD_FOLDER'], image[key])
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-
-            flash("Изображение удалено", "success")
-        else:
-            flash("Файл не найден или доступ запрещен", "error")
+                f_p = os.path.join(app.config['UPLOAD_FOLDER'], image[key])
+                if os.path.exists(f_p): os.remove(f_p)
+            flash("Удалено", "success")
     finally:
-        cursor.close()
-        db.close()
-
+        cursor.close(); db.close()
     return redirect(url_for('dashboard'))
 
 

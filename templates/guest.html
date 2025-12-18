@@ -12,7 +12,14 @@
             <form method="POST" enctype="multipart/form-data" id="processingForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-                <input type="file" name="file" class="form-control mb-4" required id="fileInput" accept=".jpg,.jpeg,.png">
+                <div class="mb-4">
+                   <div class="alert alert-warning py-2 mb-2" style="font-size: 0.8rem;">
+                       <strong>Заметка:</strong> Работа с видео доступна только зарегистрированным пользователям.
+                   </div>
+
+                   <label class="form-label">Выберите фото</label>
+                   <input type="file" name="file" class="form-control" required id="fileInput" accept=".jpg,.jpeg,.png">
+                </div>
 
                 <div class="mb-3">
                     <label class="form-label d-flex justify-content-between">Яркость: <span id="brightnessValue" class="text-warning">15</span></label>
