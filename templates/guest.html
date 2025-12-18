@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-5">
+        <div class="card p-4 mb-4 shadow-sm">
+            <h4 class="mb-3">OCV: Гостевой режим</h4>
+            <p class="text-muted small">
+                Регулируйте параметры для предпросмотра. Полный эффект (Резкость и Шум) будет виден после обработки. Временные файлы удалятся при выходе.
+            </p>
+
+            <form method="POST" enctype="multipart/form-data" id="processingForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <input type="file" name="file" class="form-control mb-4" required id="fileInput" accept=".jpg,.jpeg,.png">
+
+                <div class="mb-3">
+                    <label class="form-label d-flex justify-content-between">Яркость: <span id="brightnessValue" class="text-warning">15</span></label>
+                    <input type="range" class="form-range" name="brightness_beta" min="-100" max="100" step="5" value="15" id="brightness_beta">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label d-flex justify-content-between">Контраст: <span id="contrastValue" class="text-warning">1.15</span></label>
+                    <input type="range" class="form-range" name="contrast_alpha" min="1.0" max="3.0" step="0.05" value="1.15" id="contrast_alpha">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label d-flex justify-content-between">Насыщенность: <span id="saturationValue" class="text-warning">1.3</span></label>
+                    <input type="range" class="form-range" name="saturation_factor" min="0.5" max="2.0" step="0.1" value="1.3" id="saturation_factor">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label d-flex justify-content-between">Шумоподавление: <span id="denoiseValue" class="text-warning">15.0</span></label>
+                    <input type="range" class="form-range" name="denoise_h" min="0" max="20" step="0.1" value="15.0" id="denoise_h">
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label d-flex justify-content-between">Резкость: <span id="sharpnessValue" class="text-warning">1.0</span></label>
+                    <input type="range" class="form-range" name="sharpness_factor" min="0" max="3" step="0.1" value="1.0" id="sharpness_factor">
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary">Обработать</button>
+                    <button type="submit" name="auto_process" class="btn btn-outline-light">Автоматическая обработка</button>
+                    <button type="button" id="resetSettings" class="btn btn-link text-muted btn-sm">Сбросить настройки</button>
+                </div>
+            </form>
+            <div class="text-center mt-3 border-top pt-3">
+                <a href="{{ url_for('index') }}" class="small text-muted text-decoration-none">← Выйти из гостевого режима</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-7">
+        <h4 class="mb-3">Предпросмотр</h4>
+        <div id="previewContainer" class="border rounded d-flex align-items-center justify-content-center bg-light mb-4 shadow-sm" style="height: 400px; overflow: hidden; position: relative; border-color: #333 !important;">
+            <img id="imagePreview" class="img-fluid d-none" src="" alt="Предпросмотр" style="max-height: 100%; object-fit: contain;">
+            <div id="previewPlaceholder" class="text-muted text-center">
+                <p>Выберите фото для начала работы</p>
+            </div>
+        </div>
+
+        {% if processed_url %}
+        <h4 class="mb-3">Результат</h4>
+        <div class="card p-4 shadow-sm text-center bg-dark border-secondary">
+            <div class="mb-3">
+                <img src="{{ url_for('static', filename='uploads/' + processed_url) }}" class="rounded shadow-sm img-fluid" style="max-height: 350px; border: 1px solid #444;">
+            </div>
+            <div class="d-grid">
+                <a href="{{ url_for('static', filename='uploads/' + processed_url) }}" download class="btn btn-success btn-lg">
+                    СКАЧАТЬ ФОТО
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+{% endblock %}

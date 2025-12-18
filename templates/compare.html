@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-white">Сравнение результата</h2>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-light btn-sm">&larr; Назад</a>
+</div>
+
+<div class="comparison-container shadow-lg">
+    <div class="image-wrapper original">
+        <img src="{{ url_for('static', filename='uploads/' + image.filename_original) }}" alt="Original">
+    </div>
+
+    <div class="image-wrapper processed" id="processedImage">
+        <img src="{{ url_for('static', filename='uploads/' + image.filename_processed) }}" alt="Processed">
+    </div>
+
+    <input type="range" min="0" max="100" value="50" class="slider" id="slider" oninput="moveSlider()">
+
+    <div class="slider-button" id="sliderButton"></div>
+</div>
+
+<div class="text-center mt-3">
+    <p class="text-muted small">Перетаскивайте разделитель, чтобы сравнить фото</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+{% endblock %}

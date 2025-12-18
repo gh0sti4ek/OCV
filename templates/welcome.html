@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="text-center mb-5">
+        <h1 class="display-3 fw-bold text-warning">OCV</h1>
+        <p class="lead text-white-50">Интеллектуальный сервис улучшения изображений на базе OpenCV.</p>
+       <div class="mt-4">
+    {% if session.user_id %}
+        <a href="{{ url_for('dashboard') }}" class="btn btn-warning btn-lg px-5">Вернуться к работе</a>
+    {% else %}
+        <a href="{{ url_for('register') }}" class="btn btn-primary btn-lg px-5 me-md-2">Создать аккаунт</a>
+        <a href="{{ url_for('guest_mode') }}" class="btn btn-outline-warning btn-lg px-5">Попробовать без регистрации</a>
+    {% endif %}
+</div>
+    </div>
+
+    <div class="row g-4 py-5 row-cols-1 row-cols-md-3">
+        <div class="col text-center">
+            <div class="mb-3">
+                <span class="badge rounded-pill bg-dark border border-warning p-3 fs-3">01</span>
+            </div>
+            <h3 class="fs-4">Загрузка</h3>
+            <p class="text-muted">Загрузите фотографию в систему. Мы работаем с форматами PNG, JPG и JPEG.</p>
+        </div>
+        <div class="col text-center">
+            <div class="mb-3">
+                <span class="badge rounded-pill bg-dark border border-warning p-3 fs-3">02</span>
+            </div>
+            <h3 class="fs-4">Обработка</h3>
+            <p class="text-muted">Настройте параметры яркости, контраста и шумоподавления с помощью удобных регуляторов.</p>
+        </div>
+        <div class="col text-center">
+            <div class="mb-3">
+                <span class="badge rounded-pill bg-dark border border-warning p-3 fs-3">03</span>
+            </div>
+            <h3 class="fs-4">Результат</h3>
+            <p class="text-muted">Сравните оригинал и результат на интерактивном слайдере и сохраните лучшее фото.</p>
+        </div>
+    </div>
+
+    <hr class="my-5 border-secondary">
+
+    <div class="row align-items-center g-5">
+        <div class="col-lg-6">
+            <h2 class="fw-bold mb-4 text-white">Технологии обработки</h2>
+            <div class="d-flex mb-4">
+                <div class="flex-shrink-0 text-warning fs-4">✔</div>
+                <div class="ms-3">
+                    <h5>Адаптивное осветление</h5>
+                    <p class="text-muted">Алгоритм CLAHE позволяет вытягивать детали из глубоких теней без потери качества.</p>
+                </div>
+            </div>
+            <div class="d-flex mb-4">
+                <div class="flex-shrink-0 text-warning fs-4">✔</div>
+                <div class="ms-3">
+                    <h5>Умное шумоподавление</h5>
+                    <p class="text-muted">Удаление цветового и зернистого шума для фотографий, сделанных ночью.</p>
+                </div>
+            </div>
+            <div class="d-flex mb-4">
+                <div class="flex-shrink-0 text-warning fs-4">✔</div>
+                <div class="ms-3">
+                    <h5>Повышение резкости</h5>
+                    <p class="text-muted">Матричные фильтры подчеркивают контуры объектов, делая изображение более четким.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="p-5 bg-dark border border-secondary rounded-4 shadow-lg">
+                <h4 class="text-warning mb-3">О проекте</h4>
+                <p class="text-muted mb-0">
+                    <strong>OCV</strong> — это инструмент для быстрой реставрации снимков.
+                    Все вычисления происходят на стороне сервера с использованием мощных библиотек компьютерного зрения.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

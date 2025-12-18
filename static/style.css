@@ -1,0 +1,138 @@
+:root {
+    --bg-dark: #121212;
+    --card-bg: #1e1e1e;
+    --accent: #ff9f43;
+    --accent-hover: #e68a2e;
+    --text-main: #ffffff;      /* Белый текст для контраста */
+    --text-muted: #b0b0b0;     /* Светло-серый, хорошо видимый текст */
+    --border-color: #444444;   /* Заметные границы блоков */
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    font-family: 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Навигация */
+.navbar {
+    background-color: #000 !important;
+    border-bottom: 2px solid var(--accent);
+}
+
+.navbar-brand {
+    font-weight: bold;
+    color: var(--accent) !important;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* Карточки и текст */
+.card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+}
+
+.text-muted {
+    color: var(--text-muted) !important;
+}
+
+h1, h2, h3, h4, h5, h6, .form-label {
+    color: #ffffff !important;
+}
+
+/* Кнопки */
+.btn-primary, .btn-success, .btn-warning {
+    background-color: var(--accent) !important;
+    border: none !important;
+    color: #000 !important;
+    font-weight: 700;
+}
+
+.btn-primary:hover, .btn-success:hover, .btn-warning:hover {
+    background-color: var(--accent-hover) !important;
+}
+
+.btn-outline-light {
+    border-color: var(--text-muted);
+    color: #ffffff;
+}
+
+.comparison-container {
+    position: relative;
+    width: 100%;
+    max-width: 800px;
+    height: 500px;
+    margin: 0 auto;
+    overflow: hidden;
+    background-color: #000;
+    border: 2px solid #444; /* Твой темный стиль */
+    border-radius: 8px;
+}
+
+/* Обертки ДОЛЖНЫ быть абсолютными, чтобы лежать друг на друге */
+.image-wrapper {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.image-wrapper img {
+    /* Ширина будет управляться скриптом динамически через containerWidth */
+    height: 500px;
+    object-fit: contain;
+    display: block;
+}
+
+.original {
+    z-index: 1;
+}
+
+.processed {
+    z-index: 2;
+    width: 50%; /* Это меняет ползунок */
+    overflow: hidden;
+    border-right: 3px solid #ff9f43; /* Твой акцентный цвет */
+}
+
+.slider-button {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: #ff9f43;
+    z-index: 5;
+    pointer-events: none;
+    transform: translateX(-50%);
+}
+
+.slider {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10;
+    opacity: 0;
+    cursor: ew-resize;
+}
+
+/* Таблицы */
+.table { color: var(--text-main); }
+.table-dark { --bs-table-bg: #151515; }
+
+/* Инпуты */
+.form-control {
+    background-color: #252525;
+    border-color: var(--border-color);
+    color: #fff;
+}
+.form-control:focus {
+    background-color: #333;
+    border-color: var(--accent);
+    color: #fff;
+    box-shadow: 0 0 0 0.25rem rgba(255, 159, 67, 0.2);
+}
