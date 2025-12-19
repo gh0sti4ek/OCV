@@ -12,7 +12,6 @@ from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import time
-from werkzeug.utils import secure_filename
 import image_processor # Импорт модуля обработки
 
 load_dotenv()
