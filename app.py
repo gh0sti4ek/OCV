@@ -29,7 +29,7 @@ csp = {
     'style-src': ['\'self\'', 'https://cdn.jsdelivr.net', '\'unsafe-inline\''],
     'script-src': ['\'self\'', 'https://cdn.jsdelivr.net'],
     'img-src': ['\'self\'', 'data:', 'blob:'],
-    'media-src': ['\'self\'', 'blob:'],  # РАЗРЕШАЕМ видео
+    'media-src': ['\'self\'', 'blob:'],
     'connect-src': ['\'self\'', 'https://cdn.jsdelivr.net']
 }
 
