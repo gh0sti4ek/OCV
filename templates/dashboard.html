@@ -86,8 +86,10 @@
                                 <div class="d-flex justify-content-end gap-2">
                                     {% if is_video %}
                                         <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}" target="_blank" class="btn btn-outline-warning btn-sm">Смотреть</a>
+                                        <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}" download="processed_video.mp4" class="btn btn-success btn-sm"><i class="bi bi-download"></i> Скачать</a>
                                     {% else %}
                                         <a href="{{ url_for('compare', image_id=img.id) }}" class="btn btn-outline-primary btn-sm">Сравнить</a>
+                                        <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}" download="processed_image.jpg" class="btn btn-success btn-sm"><i class="bi bi-download"></i> Скачать</a>
                                     {% endif %}
 
                                     <form action="{{ url_for('delete_image', image_id=img.id) }}" method="POST" onsubmit="return confirm('Вы уверены?');" style="display: inline;">

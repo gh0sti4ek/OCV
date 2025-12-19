@@ -165,8 +165,6 @@ def dashboard():
             flash("Лимит хранения (100) исчерпан.", "error")
             return redirect(url_for('dashboard'))
 
-        # Проверка на фото или видео, проверка параметров и обработка
-
         if request.method == 'POST':
             file = request.files.get('file')
             if file and allowed_file(file.filename):
@@ -198,6 +196,7 @@ def dashboard():
 
                 u_id = uuid.uuid4().hex
 
+                # --- ОБРАБОТКА ВИДЕО ---
                 if is_video_ext:
                     filename_orig = f"raw_{u_id}.{ext}"
                     filename_proc = f"proc_{u_id}.mp4"
@@ -209,8 +208,6 @@ def dashboard():
                     v_w = v_cap.get(cv2.CAP_PROP_FRAME_WIDTH)
                     v_h = v_cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
                     v_cap.release()
-
-                    # Проверка разрешения, максимум 720p
 
                     if v_w > 1280 or v_h > 720:
                         os.remove(p_in)
@@ -224,11 +221,11 @@ def dashboard():
                              params['contrast_alpha']))
                         db.commit()
                         flash("Видео готово!", "success")
+                        return redirect(url_for('dashboard')) # <--- РЕДИРЕКТ ПОСЛЕ УСПЕХА
                     else:
                         flash("Ошибка обработки видео", "error")
 
-                # Обработка фото
-
+                # --- ОБРАБОТКА ФОТО ---
                 else:
                     file_data = file.read()
                     filename_orig = f"{u_id}.{ext}"
@@ -247,7 +244,9 @@ def dashboard():
                              params['contrast_alpha']))
                         db.commit()
                         flash("Фото готово!", "success")
+                        return redirect(url_for('dashboard')) # <--- РЕДИРЕКТ ПОСЛЕ УСПЕХА
 
+        # Загрузка списка происходит только при GET запросе или после редиректа
         cursor.execute("SELECT * FROM images WHERE user_id = %s ORDER BY upload_date DESC", (session['user_id'],))
         images = cursor.fetchall()
         return render_template('dashboard.html', images=images)
