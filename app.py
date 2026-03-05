@@ -12,6 +12,7 @@ from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import time
+from datetime import date
 import image_processor # Импорт модуля обработки
 
 load_dotenv()
@@ -97,6 +98,36 @@ def cleanup_old_files():
                     pass
     last_cleanup_time = current_time
 
+def can_guest_process(ip):
+    db = get_db_connection()
+    cursor = db.cursor(dictionary=True)
+    today = date.today()
+    
+    try:
+        # Проверяем, есть ли запись для этого IP
+        cursor.execute("SELECT count, last_update FROM guest_usage WHERE ip_address = %s", (ip,))
+        row = cursor.fetchone()
+        
+        if row:
+            # Если наступил новый день, сбрасываем счетчик
+            if row['last_update'] < today:
+                cursor.execute("UPDATE guest_usage SET count = 1, last_update = %s WHERE ip_address = %s", (today, ip))
+                db.commit()
+                return True
+            # Если сегодня уже было 5 или более обработок
+            if row['count'] >= 5:
+                return False
+            # Иначе инкрементируем
+            cursor.execute("UPDATE guest_usage SET count = count + 1 WHERE ip_address = %s", (ip,))
+        else:
+            # Первая запись для этого IP
+            cursor.execute("INSERT INTO guest_usage (ip_address, count, last_update) VALUES (%s, 1, %s)", (ip, today))
+        
+        db.commit()
+        return True
+    finally:
+        cursor.close()
+        db.close()
 
 # Маршруты
 
@@ -156,10 +187,14 @@ def logout():
 # Профиль, обработка фото и видео пользователя
 @app.route('/dashboard', methods=['GET', 'POST'])
 def dashboard():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if 'user_id' not in session: 
+        return redirect(url_for('login'))
+    
     db = get_db_connection()
     try:
         cursor = db.cursor(dictionary=True)
+        
+        # 1. Проверка лимита хранения
         cursor.execute("SELECT COUNT(*) as count FROM images WHERE user_id = %s", (session['user_id'],))
         if cursor.fetchone()['count'] > 100:
             flash("Лимит хранения (100) исчерпан.", "error")
@@ -168,6 +203,7 @@ def dashboard():
         if request.method == 'POST':
             file = request.files.get('file')
             if file and allowed_file(file.filename):
+                # Измеряем размер файла
                 file.seek(0, os.SEEK_END)
                 file_size = file.tell()
                 file.seek(0)
@@ -175,13 +211,13 @@ def dashboard():
                 ext = file.filename.rsplit('.', 1)[1].lower()
                 is_video_ext = ext in {'mp4', 'mov', 'avi'}
 
-                # Проверка размера (для видео максимум 50 мб, для фото 10 мб)
+                # 2. Проверка размера (видео 50МБ, фото 10МБ)
                 if (is_video_ext and file_size > 50 * 1024 * 1024) or (
                         not is_video_ext and file_size > 10 * 1024 * 1024):
                     flash("Файл слишком большой!", "error")
                     return redirect(url_for('dashboard'))
 
-                # Параметры обработки
+                # 3. Параметры обработки
                 if 'auto_process' in request.form:
                     params = {'denoise_h': 10.0, 'saturation_factor': 1.2, 'sharpness_factor': 1.0,
                               'contrast_alpha': 1.1, 'brightness_beta': 5.0}
@@ -200,36 +236,40 @@ def dashboard():
                 if is_video_ext:
                     filename_orig = f"raw_{u_id}.{ext}"
                     filename_proc = f"proc_{u_id}.mp4"
-                    p_in, p_out = os.path.join(app.config['UPLOAD_FOLDER'], filename_orig), os.path.join(
-                        app.config['UPLOAD_FOLDER'], filename_proc)
+                    p_in = os.path.join(app.config['UPLOAD_FOLDER'], filename_orig)
+                    p_out = os.path.join(app.config['UPLOAD_FOLDER'], filename_proc)
                     file.save(p_in)
 
-                    v_cap = cv2.VideoCapture(p_in)
-                    v_w = v_cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-                    v_h = v_cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-                    v_cap.release()
+                    p_compressed = os.path.join(app.config['UPLOAD_FOLDER'], f"res_{u_id}.mp4")
+                    
+                    # Сжатие до 720p (если оригинал больше)
+                    was_compressed = image_processor.resize_video_if_needed(p_in, p_compressed)
+                    input_for_processing = p_compressed if was_compressed else p_in
 
-                    if v_w > 1280 or v_h > 720:
-                        os.remove(p_in)
-                        flash("Разрешение видео слишком высокое! Максимум 720p.", "error")
-                        return redirect(url_for('dashboard'))
+                    # Основной фильтр улучшения
+                    if image_processor.process_video(input_for_processing, p_out, **params):
+                        if was_compressed and os.path.exists(p_compressed):
+                            os.remove(p_compressed)
 
-                    if image_processor.process_video(p_in, p_out, **params):
                         cursor.execute(
                             "INSERT INTO images (user_id, filename_original, filename_processed, brightness_beta, contrast_alpha) VALUES (%s,%s,%s,%s,%s)",
                             (session['user_id'], filename_orig, filename_proc, params['brightness_beta'],
                              params['contrast_alpha']))
                         db.commit()
-                        flash("Видео готово!", "success")
-                        return redirect(url_for('dashboard')) # <--- РЕДИРЕКТ ПОСЛЕ УСПЕХА
+                        
+                        msg = "Видео сжато до 720p и обработано!" if was_compressed else "Видео успешно обработано!"
+                        flash(msg, "success")
+                        return redirect(url_for('dashboard'))
                     else:
-                        flash("Ошибка обработки видео", "error")
+                        flash("Ошибка при обработке видео", "error")
+                        return redirect(url_for('dashboard'))
 
                 # --- ОБРАБОТКА ФОТО ---
                 else:
                     file_data = file.read()
                     filename_orig = f"{u_id}.{ext}"
                     p_orig = os.path.join(app.config['UPLOAD_FOLDER'], filename_orig)
+                    
                     with open(p_orig, 'wb') as f:
                         f.write(file_data)
 
@@ -237,47 +277,66 @@ def dashboard():
                     if proc_io:
                         filename_proc = f"proc_{u_id}.jpg"
                         p_proc = os.path.join(app.config['UPLOAD_FOLDER'], filename_proc)
-                        with open(p_proc, 'wb') as f_out: f_out.write(proc_io.getbuffer())
+                        with open(p_proc, 'wb') as f_out: 
+                            f_out.write(proc_io.getbuffer())
+                            
                         cursor.execute(
                             "INSERT INTO images (user_id, filename_original, filename_processed, brightness_beta, contrast_alpha) VALUES (%s,%s,%s,%s,%s)",
                             (session['user_id'], filename_orig, filename_proc, params['brightness_beta'],
                              params['contrast_alpha']))
                         db.commit()
                         flash("Фото готово!", "success")
-                        return redirect(url_for('dashboard')) # <--- РЕДИРЕКТ ПОСЛЕ УСПЕХА
+                        return redirect(url_for('dashboard'))
+                    else:
+                        flash("Ошибка при обработке фото", "error")
+                        return redirect(url_for('dashboard'))
 
-        # Загрузка списка происходит только при GET запросе или после редиректа
+        # GET-запрос: загружаем список всех файлов пользователя
         cursor.execute("SELECT * FROM images WHERE user_id = %s ORDER BY upload_date DESC", (session['user_id'],))
         images = cursor.fetchall()
         return render_template('dashboard.html', images=images)
-    finally:
-        cursor.close(); db.close()
 
-# Гость, обработка фото
+    finally:
+        cursor.close()
+        db.close()
+
 @app.route('/guest', methods=['GET', 'POST'])
 def guest_mode():
-    cleanup_old_files()
+    cleanup_old_files() # Очистка старых временных файлов
     processed_url = None
+    
     if request.method == 'POST':
+        # 1. Получаем IP пользователя (используем уже импортированный метод)
+        user_ip = get_remote_address() 
+        
+        # 2. Проверяем лимит в базе данных
+        if not can_guest_process(user_ip):
+            flash("Лимит для гостей (5 фото в день) исчерпан! Пожалуйста, зарегистрируйтесь.", "error")
+            return redirect(url_for('guest_mode'))
+
         file = request.files.get('file')
         if file and allowed_file(file.filename):
             try:
                 ext = file.filename.rsplit('.', 1)[1].lower()
+                # Запрет видео для гостей
                 if ext in {'mp4', 'mov', 'avi'}:
                     flash("Видео доступно только зарегистрированным пользователям!", "error")
                     return redirect(url_for('guest_mode'))
 
                 file_stream = file.read()
+                # Проверка разрешения изображения
                 with Image.open(io.BytesIO(file_stream)) as img:
                     if img.width * img.height > MAX_IMAGE_PIXELS:
                         flash("Изображение слишком большое!", "error")
                         return redirect(request.url)
 
-                # Обработка фото
-
+                # Настройка параметров (Авто или Ручные)
                 if 'auto_process' in request.form:
-                    params = {'denoise_h': 10.0, 'saturation_factor': 1.2, 'sharpness_factor': 1.0,
-                              'contrast_alpha': 1.1, 'brightness_beta': 5.0}
+                    params = {
+                        'denoise_h': 10.0, 'saturation_factor': 1.2, 
+                        'sharpness_factor': 1.0, 'contrast_alpha': 1.1, 
+                        'brightness_beta': 5.0
+                    }
                 else:
                     params = {
                         'denoise_h': max(0.0, min(float(request.form.get('denoise_h', 15.0)), 20.0)),
@@ -287,16 +346,23 @@ def guest_mode():
                         'brightness_beta': max(-100.0, min(float(request.form.get('brightness_beta', 15)), 100.0))
                     }
 
+                # Вызов процессора обработки
                 proc_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_stream), **params)
+                
                 if proc_io:
+                    # Создаем уникальное имя файла для гостя
                     filename = f"guest_{uuid.uuid4().hex}.jpg"
-                    with open(os.path.join(app.config['UPLOAD_FOLDER'], filename), 'wb') as f: f.write(
-                        proc_io.getbuffer())
+                    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    with open(save_path, 'wb') as f:
+                        f.write(proc_io.getbuffer())
                     processed_url = filename
+                    
             except Exception as e:
-                flash("Ошибка обработки", "error")
+                print(f"Ошибка в guest_mode: {e}")
+                flash("Произошла ошибка при обработке.", "error")
         else:
-            flash("Выберите фото!", "error")
+            flash("Пожалуйста, выберите корректный файл изображения!", "error")
+            
     return render_template('guest.html', processed_url=processed_url)
 
 # Сравнение фото
