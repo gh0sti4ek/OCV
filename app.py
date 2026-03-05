@@ -273,7 +273,14 @@ def dashboard():
                     with open(p_orig, 'wb') as f:
                         f.write(file_data)
 
-                    proc_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_data), **params)
+                    # ПРОВЕРЯЕМ: Выбрал ли пользователь AI?
+                    if 'use_ai' in request.form:
+                        # Используем нейросеть Zero-DCE++
+                        proc_io = image_processor.enhance_image_ai(io.BytesIO(file_data))
+                    else:
+                        # Используем классический метод (ползунки)
+                        proc_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_data), **params)
+
                     if proc_io:
                         filename_proc = f"proc_{u_id}.jpg"
                         p_proc = os.path.join(app.config['UPLOAD_FOLDER'], filename_proc)
@@ -285,10 +292,7 @@ def dashboard():
                             (session['user_id'], filename_orig, filename_proc, params['brightness_beta'],
                              params['contrast_alpha']))
                         db.commit()
-                        flash("Фото готово!", "success")
-                        return redirect(url_for('dashboard'))
-                    else:
-                        flash("Ошибка при обработке фото", "error")
+                        flash("Фото готово (использован " + ("AI" if 'use_ai' in request.form else "стандарт") + ")!", "success")
                         return redirect(url_for('dashboard'))
 
         # GET-запрос: загружаем список всех файлов пользователя

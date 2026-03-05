@@ -3,6 +3,9 @@
 import cv2
 import numpy as np
 import io
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 # CLAHE (яркость)
@@ -159,3 +162,102 @@ def process_video(input_path, output_path, denoise_h, saturation_factor, sharpne
     except Exception as e:
         print(f"Ошибка в видео-процессоре: {e}")
         return False
+
+# Описание архитектуры Zero-DCE++ (те самые Depthwise Separable Convolutions)
+class DS_conv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(DS_conv, self).__init__()
+        # Глубинная свертка (Depthwise)
+        self.depth_conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, groups=in_channels)
+        # Точечная свертка (Pointwise)
+        self.point_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        out = self.depth_conv(x)
+        out = self.point_conv(out)
+        return out
+
+class DCENet_pp(nn.Module):
+    def __init__(self):
+        super(DCENet_pp, self).__init__()
+        self.e_conv1 = DS_conv(3, 32)
+        self.e_conv2 = DS_conv(32, 32)
+        self.e_conv3 = DS_conv(32, 32)
+        self.e_conv4 = DS_conv(32, 32)
+        self.e_conv5 = DS_conv(64, 32)
+        self.e_conv6 = DS_conv(64, 32)
+        # ИСПРАВЛЕНО: здесь должно быть 3, а не 24
+        self.e_conv7 = DS_conv(64, 3) 
+
+    def forward(self, x):
+        x1 = F.relu(self.e_conv1(x))
+        x2 = F.relu(self.e_conv2(x1))
+        x3 = F.relu(self.e_conv3(x2))
+        x4 = F.relu(self.e_conv4(x3))
+        x5 = F.relu(self.e_conv5(torch.cat([x3, x4], 1)))
+        x6 = F.relu(self.e_conv6(torch.cat([x2, x5], 1)))
+        extract_feature = torch.tanh(self.e_conv7(torch.cat([x1, x6], 1)))
+        return extract_feature
+
+# Функция для применения AI-улучшения
+def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth'):
+    """Функция обработки фото: Zero-DCE++ + Denoise + Sharpening"""
+    try:
+        # 1. Декодируем входящие данные
+        nparr = np.frombuffer(image_data.read(), np.uint8)
+        img_cv2 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img_cv2 is None: return None
+
+        # 2. Настройка нейросети
+        device = torch.device('cpu')
+        model = DCENet_pp().to(device)
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.eval()
+
+        # 3. Подготовка тензора
+        img_rgb = cv2.cvtColor(img_cv2, cv2.COLOR_BGR2RGB)
+        data_lowlight = img_rgb.astype(np.float32) / 255.0
+        data_lowlight = torch.from_numpy(data_lowlight).permute(2, 0, 1).unsqueeze(0).to(device)
+
+        # 4. Прогон через нейронку (улучшение освещения)
+        with torch.no_grad():
+            A = model(data_lowlight)
+            enhanced_img = data_lowlight
+            for i in range(8):
+                enhanced_img = enhanced_img + A * (torch.pow(enhanced_img, 2) - enhanced_img)
+
+        # 5. Конвертация обратно в OpenCV формат
+        result = enhanced_img.squeeze().permute(1, 2, 0).cpu().numpy()
+        result = (result * 255).clip(0, 255).astype(np.uint8)
+        result_bgr = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
+
+        # --- НОВЫЙ БЛОК: ОЧИСТКА ОТ ШУМА ---
+        # fastNlMeansDenoisingColored — один из лучших методов для фото.
+        # h=10 — сила очистки. Если шума всё ещё много, можно поднять до 12-15.
+        denoised_img = cv2.fastNlMeansDenoisingColored(
+            result_bgr, 
+            None, 
+            h=10, 
+            hColor=10, 
+            templateWindowSize=7, 
+            searchWindowSize=21
+        )
+
+        # --- НОВЫЙ БЛОК: ВОЗВРАТ РЕЗКОСТИ ---
+        # После денойза края могут размыться, добавим легкую резкость
+        sharpen_kernel = np.array([
+            [0, -1, 0],
+            [-1, 5, -1],
+            [0, -1, 0]
+        ])
+        final_img = cv2.filter2D(denoised_img, -1, sharpen_kernel)
+
+        # 6. Кодируем в JPEG
+        is_success, buffer = cv2.imencode(".jpg", final_img)
+        if is_success:
+            return io.BytesIO(buffer)
+        return None
+        
+    except Exception as e:
+        print(f"Ошибка AI процессора: {e}")
+        return None
