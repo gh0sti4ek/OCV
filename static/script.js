@@ -5,10 +5,20 @@ document.addEventListener('DOMContentLoaded', function() {
     const imagePreview = document.getElementById('imagePreview');
     const placeholder = document.getElementById('previewPlaceholder');
     const resetBtn = document.getElementById('resetSettings');
+    
+    // Новые константы для AI
+    const aiSwitch = document.getElementById('use_ai');
+    const manualSettingsGroup = document.getElementById('manualSettingsGroup');
 
     // Функция предпросмотра
     function applyLiveFilters() {
         if (!imagePreview) return;
+
+        // Если включен AI, отключаем CSS фильтры предпросмотра
+        if (aiSwitch && aiSwitch.checked) {
+            imagePreview.style.filter = 'none';
+            return;
+        }
 
         const b = document.getElementById('brightness_beta')?.value || 15;
         const c = document.getElementById('contrast_alpha')?.value || 1.15;
@@ -31,12 +41,27 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // Логика переключателя AI
+    if (aiSwitch && manualSettingsGroup) {
+        aiSwitch.addEventListener('change', function() {
+            if (this.checked) {
+                // Визуально блокируем ручные настройки
+                manualSettingsGroup.style.opacity = '0.4';
+                manualSettingsGroup.style.pointerEvents = 'none';
+            } else {
+                // Возвращаем доступ к настройкам
+                manualSettingsGroup.style.opacity = '1';
+                manualSettingsGroup.style.pointerEvents = 'all';
+            }
+            applyLiveFilters(); // Обновляем предпросмотр
+        });
+    }
+
     // Загрузка и использование файлов
     if (fileInput && imagePreview) {
         fileInput.addEventListener('change', function() {
             const file = this.files[0];
             if (file) {
-                // Проверка Видео или Фото
                 const isVideo = file.type.startsWith('video/');
 
                 if (isVideo) {
@@ -86,6 +111,12 @@ document.addEventListener('DOMContentLoaded', function() {
             for (let id in defaults) {
                 const slider = document.getElementById(id);
                 if (slider) slider.value = defaults[id];
+            }
+            // Сбрасываем и чекбокс AI при нажатии "Сброс", если нужно
+            if (aiSwitch) {
+                aiSwitch.checked = false;
+                manualSettingsGroup.style.opacity = '1';
+                manualSettingsGroup.style.pointerEvents = 'all';
             }
             applyLiveFilters();
         });
