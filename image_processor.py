@@ -78,6 +78,34 @@ def enhance_low_light_clahe(image_data, denoise_h, saturation_factor, sharpness_
         print(f"Ошибка в image_processor (фото): {e}")
         return None
 
+def resize_video_if_needed(input_path, output_path, target_height=720):
+    cap = cv2.VideoCapture(input_path)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    # Если видео уже подходит под лимит, сжимать не нужно
+    if height <= target_height:
+        cap.release()
+        return False
+
+    # Считаем новые размеры с сохранением пропорций
+    new_h = target_height
+    new_w = int(width * (new_h / height))
+    
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (new_w, new_h))
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        out.write(resized)
+
+    cap.release()
+    out.release()
+    return True
 
 def process_video(input_path, output_path, denoise_h, saturation_factor, sharpness_factor, contrast_alpha,
                   brightness_beta):
