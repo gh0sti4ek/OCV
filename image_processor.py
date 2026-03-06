@@ -290,13 +290,10 @@ class NAFNet(nn.Module):
         for decoder, up, enc_feat in zip(self.decoders, self.ups, reversed(enc_feats)):
             x = up(x)
             
-            # --- БЕЗОПАСНОЕ СОЕДИНЕНИЕ (Skip-connection) ---
-            # Если размеры не совпадают, обрезаем x под размер enc_feat
             if x.shape[2:] != enc_feat.shape[2:]:
                 x = F.interpolate(x, size=enc_feat.shape[2:], mode='bilinear', align_corners=False)
             
             x = x + enc_feat
-            # -----------------------------------------------
             
             x = decoder(x)
 
@@ -335,23 +332,16 @@ def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth', denoise_pa
         dn_model.eval()
 
         with torch.no_grad():
-            # --- ИСПРАВЛЕНИЕ ОШИБКИ РАЗМЕРНОСТИ (PADDING) ---
             _, _, h, w = enhanced_img.size()
-            
-            # Вычисляем, сколько пикселей не хватает до кратности 8
+
             pad_h = (8 - h % 8) % 8
             pad_w = (8 - w % 8) % 8
-            
-            # Добавляем паддинг (используем reflect, чтобы края были естественными)
-            # Формат паддинга: (left, right, top, bottom)
+
             input_padded = F.pad(enhanced_img, (0, pad_w, 0, pad_h), mode='reflect')
 
-            # Прогон через модель
             final_tensor = dn_model(input_padded)
 
-            # Обрезаем лишнее, возвращаясь к оригинальному размеру [h, w]
             final_tensor = final_tensor[:, :, :h, :w]
-            # ------------------------------------------------
             
             final_tensor = torch.clamp(final_tensor, 0, 1)
 
