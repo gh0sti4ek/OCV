@@ -217,7 +217,7 @@ def dashboard():
                     flash("Файл слишком большой!", "error")
                     return redirect(url_for('dashboard'))
 
-                # 3. Параметры обработки
+                # 3. Параметры обработки (для классического метода)
                 if 'auto_process' in request.form:
                     params = {'denoise_h': 10.0, 'saturation_factor': 1.2, 'sharpness_factor': 1.0,
                               'contrast_alpha': 1.1, 'brightness_beta': 5.0}
@@ -275,10 +275,18 @@ def dashboard():
 
                     # ПРОВЕРЯЕМ: Выбрал ли пользователь AI?
                     if 'use_ai' in request.form:
-                        # Используем нейросеть Zero-DCE++
-                        proc_io = image_processor.enhance_image_ai(io.BytesIO(file_data))
+                        # Формируем пути к моделям явно
+                        m_path = os.path.join('models', 'zero_dce_pp.pth')
+                        dn_path = os.path.join('models', 'nafnet_denoiser.pth')
+                        
+                        # Вызываем AI-улучшение с каскадом нейросетей
+                        proc_io = image_processor.enhance_image_ai(
+                            io.BytesIO(file_data), 
+                            model_path=m_path, 
+                            denoise_path=dn_path
+                        )
                     else:
-                        # Используем классический метод (ползунки)
+                        # Используем классический метод (CLAHE + Фильтры)
                         proc_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_data), **params)
 
                     if proc_io:
@@ -292,13 +300,20 @@ def dashboard():
                             (session['user_id'], filename_orig, filename_proc, params['brightness_beta'],
                              params['contrast_alpha']))
                         db.commit()
-                        flash("Фото готово (использован " + ("AI" if 'use_ai' in request.form else "стандарт") + ")!", "success")
+                        
+                        mode_name = "AI каскад" if 'use_ai' in request.form else "стандартный фильтр"
+                        flash(f"Фото готово (использован {mode_name})!", "success")
                         return redirect(url_for('dashboard'))
 
         # GET-запрос: загружаем список всех файлов пользователя
         cursor.execute("SELECT * FROM images WHERE user_id = %s ORDER BY upload_date DESC", (session['user_id'],))
         images = cursor.fetchall()
         return render_template('dashboard.html', images=images)
+
+    except Exception as e:
+        print(f"Ошибка в роуте dashboard: {e}")
+        flash("Произошла ошибка при обработке файла.", "error")
+        return redirect(url_for('dashboard'))
 
     finally:
         cursor.close()

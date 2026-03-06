@@ -163,19 +163,14 @@ def process_video(input_path, output_path, denoise_h, saturation_factor, sharpne
         print(f"Ошибка в видео-процессоре: {e}")
         return False
 
-# Описание архитектуры Zero-DCE++ (те самые Depthwise Separable Convolutions)
 class DS_conv(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_ch, out_ch):
         super(DS_conv, self).__init__()
-        # Глубинная свертка (Depthwise)
-        self.depth_conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, groups=in_channels)
-        # Точечная свертка (Pointwise)
-        self.point_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        self.depth_conv = nn.Conv2d(in_ch, in_ch, kernel_size=3, stride=1, padding=1, groups=in_ch)
+        self.point_conv = nn.Conv2d(in_ch, out_ch, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
-        out = self.depth_conv(x)
-        out = self.point_conv(out)
-        return out
+        return self.point_conv(self.depth_conv(x))
 
 class DCENet_pp(nn.Module):
     def __init__(self):
@@ -186,7 +181,6 @@ class DCENet_pp(nn.Module):
         self.e_conv4 = DS_conv(32, 32)
         self.e_conv5 = DS_conv(64, 32)
         self.e_conv6 = DS_conv(64, 32)
-        # ИСПРАВЛЕНО: здесь должно быть 3, а не 24
         self.e_conv7 = DS_conv(64, 3) 
 
     def forward(self, x):
@@ -199,65 +193,177 @@ class DCENet_pp(nn.Module):
         extract_feature = torch.tanh(self.e_conv7(torch.cat([x1, x6], 1)))
         return extract_feature
 
-# Функция для применения AI-улучшения
-def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth'):
-    """Функция обработки фото: Zero-DCE++ + Denoise + Sharpening"""
+class LayerNorm2d(nn.Module):
+    def __init__(self, channels, eps=1e-6):
+        super(LayerNorm2d, self).__init__()
+        self.register_parameter('weight', nn.Parameter(torch.ones(channels)))
+        self.register_parameter('bias', nn.Parameter(torch.zeros(channels)))
+        self.eps = eps
+
+    def forward(self, x):
+        u = x.mean(1, keepdim=True)
+        s = (x - u).pow(2).mean(1, keepdim=True)
+        x = (x - u) / torch.sqrt(s + self.eps)
+        x = x * self.weight.view(1, -1, 1, 1) + self.bias.view(1, -1, 1, 1)
+        return x
+
+class SimpleGate(nn.Module):
+    def forward(self, x):
+        x1, x2 = x.chunk(2, dim=1)
+        return x1 * x2
+
+class NAFBlock(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        dw_channel = c * 2
+        self.norm1 = LayerNorm2d(c)
+        self.conv1 = nn.Conv2d(c, dw_channel, 1, padding=0, stride=1)
+        self.conv2 = nn.Conv2d(dw_channel, dw_channel, 3, padding=1, stride=1, groups=dw_channel)
+        self.conv3 = nn.Conv2d(dw_channel // 2, c, 1, padding=0, stride=1)
+        self.sg = SimpleGate()
+
+        self.sca = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(c, c, 1, padding=0, stride=1)
+        )
+        
+        self.norm2 = LayerNorm2d(c)
+        self.conv4 = nn.Conv2d(c, dw_channel, 1, padding=0, stride=1)
+        self.conv5 = nn.Conv2d(dw_channel // 2, c, 1, padding=0, stride=1)
+
+        self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+    def forward(self, inp):
+        x = self.norm1(inp)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.sg(x)
+        
+        x = x * self.sca(x)
+        x = self.conv3(x)
+        
+        y = inp + x * self.beta
+
+        x = self.norm2(y)
+        x = self.conv4(x)
+        x = self.sg(x)
+        x = self.conv5(x)
+        
+        return y + x * self.gamma
+
+class NAFNet(nn.Module):
+    def __init__(self, width=32, enc_blk_nums=[2, 2, 4, 8], middle_blk_num=12, dec_blk_nums=[2, 2, 2, 2]):
+        super().__init__()
+        self.intro = nn.Conv2d(3, width, 3, padding=1)
+        self.ending = nn.Conv2d(width, 3, 3, padding=1)
+
+        self.encoders = nn.ModuleList()
+        self.decoders = nn.ModuleList()
+        self.middle_blks = nn.ModuleList()
+        self.ups = nn.ModuleList()
+        self.downs = nn.ModuleList()
+
+        chan = width
+        for n in enc_blk_nums:
+            self.encoders.append(nn.Sequential(*[NAFBlock(chan) for _ in range(n)]))
+            self.downs.append(nn.Conv2d(chan, chan * 2, 2, 2))
+            chan *= 2
+
+        self.middle_blks = nn.Sequential(*[NAFBlock(chan) for _ in range(middle_blk_num)])
+
+        for n in dec_blk_nums:
+            self.ups.append(nn.Sequential(nn.Conv2d(chan, chan * 2, 1), nn.PixelShuffle(2)))
+            chan //= 2
+            self.decoders.append(nn.Sequential(*[NAFBlock(chan) for _ in range(n)]))
+
+    def forward(self, inp):
+        x = self.intro(inp)
+        enc_feats = []
+        for enc, down in zip(self.encoders, self.downs):
+            x = enc(x)
+            enc_feats.append(x)
+            x = down(x)
+
+        x = self.middle_blks(x)
+
+        for decoder, up, enc_feat in zip(self.decoders, self.ups, reversed(enc_feats)):
+            x = up(x)
+            
+            # --- БЕЗОПАСНОЕ СОЕДИНЕНИЕ (Skip-connection) ---
+            # Если размеры не совпадают, обрезаем x под размер enc_feat
+            if x.shape[2:] != enc_feat.shape[2:]:
+                x = F.interpolate(x, size=enc_feat.shape[2:], mode='bilinear', align_corners=False)
+            
+            x = x + enc_feat
+            # -----------------------------------------------
+            
+            x = decoder(x)
+
+        return self.ending(x) + inp
+
+def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth', denoise_path='models/nafnet_denoiser.pth'):
     try:
-        # 1. Декодируем входящие данные
+        image_data.seek(0)
         nparr = np.frombuffer(image_data.read(), np.uint8)
         img_cv2 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img_cv2 is None: return None
 
-        # 2. Настройка нейросети
-        device = torch.device('cpu')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         model = DCENet_pp().to(device)
         model.load_state_dict(torch.load(model_path, map_location=device))
         model.eval()
 
-        # 3. Подготовка тензора
         img_rgb = cv2.cvtColor(img_cv2, cv2.COLOR_BGR2RGB)
         data_lowlight = img_rgb.astype(np.float32) / 255.0
         data_lowlight = torch.from_numpy(data_lowlight).permute(2, 0, 1).unsqueeze(0).to(device)
 
-        # 4. Прогон через нейронку (улучшение освещения)
         with torch.no_grad():
             A = model(data_lowlight)
             enhanced_img = data_lowlight
-            for i in range(8):
+            for _ in range(8):
                 enhanced_img = enhanced_img + A * (torch.pow(enhanced_img, 2) - enhanced_img)
+            enhanced_img = torch.clamp(enhanced_img, 0, 1)
 
-        # 5. Конвертация обратно в OpenCV формат
-        result = enhanced_img.squeeze().permute(1, 2, 0).cpu().numpy()
-        result = (result * 255).clip(0, 255).astype(np.uint8)
-        result_bgr = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
+        # 4. Прогон через NAFNet (Удаление шума)
+        dn_model = NAFNet(width=32).to(device)
+        checkpoint = torch.load(denoise_path, map_location=device)
+        
+        state_dict = checkpoint['params'] if 'params' in checkpoint else checkpoint
+        dn_model.load_state_dict(state_dict, strict=False)
+        dn_model.eval()
 
-        # --- НОВЫЙ БЛОК: ОЧИСТКА ОТ ШУМА ---
-        # fastNlMeansDenoisingColored — один из лучших методов для фото.
-        # h=10 — сила очистки. Если шума всё ещё много, можно поднять до 12-15.
-        denoised_img = cv2.fastNlMeansDenoisingColored(
-            result_bgr, 
-            None, 
-            h=10, 
-            hColor=10, 
-            templateWindowSize=7, 
-            searchWindowSize=21
-        )
+        with torch.no_grad():
+            # --- ИСПРАВЛЕНИЕ ОШИБКИ РАЗМЕРНОСТИ (PADDING) ---
+            _, _, h, w = enhanced_img.size()
+            
+            # Вычисляем, сколько пикселей не хватает до кратности 8
+            pad_h = (8 - h % 8) % 8
+            pad_w = (8 - w % 8) % 8
+            
+            # Добавляем паддинг (используем reflect, чтобы края были естественными)
+            # Формат паддинга: (left, right, top, bottom)
+            input_padded = F.pad(enhanced_img, (0, pad_w, 0, pad_h), mode='reflect')
 
-        # --- НОВЫЙ БЛОК: ВОЗВРАТ РЕЗКОСТИ ---
-        # После денойза края могут размыться, добавим легкую резкость
-        sharpen_kernel = np.array([
-            [0, -1, 0],
-            [-1, 5, -1],
-            [0, -1, 0]
-        ])
-        final_img = cv2.filter2D(denoised_img, -1, sharpen_kernel)
+            # Прогон через модель
+            final_tensor = dn_model(input_padded)
 
-        # 6. Кодируем в JPEG
+            # Обрезаем лишнее, возвращаясь к оригинальному размеру [h, w]
+            final_tensor = final_tensor[:, :, :h, :w]
+            # ------------------------------------------------
+            
+            final_tensor = torch.clamp(final_tensor, 0, 1)
+
+        result = final_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
+        result = (result * 255).astype(np.uint8)
+        final_img = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
+
+        final_img = cv2.filter2D(final_img, -1, DEFAULT_SHARPENING_KERNEL)
+
         is_success, buffer = cv2.imencode(".jpg", final_img)
-        if is_success:
-            return io.BytesIO(buffer)
-        return None
+        return io.BytesIO(buffer) if is_success else None
         
     except Exception as e:
-        print(f"Ошибка AI процессора: {e}")
+        print(f"Ошибка каскадного AI процессора: {e}")
         return None
