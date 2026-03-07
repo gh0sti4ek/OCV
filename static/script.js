@@ -1,128 +1,26 @@
 document.addEventListener('DOMContentLoaded', function() {
-
     // Общие константы
     const fileInput = document.getElementById('fileInput');
     const imagePreview = document.getElementById('imagePreview');
     const placeholder = document.getElementById('previewPlaceholder');
-    const resetBtn = document.getElementById('resetSettings');
-    
-    // Новые константы для AI
-    const aiSwitch = document.getElementById('use_ai');
-    const manualSettingsGroup = document.getElementById('manualSettingsGroup');
 
-    // Функция предпросмотра
-    function applyLiveFilters() {
-        if (!imagePreview) return;
-
-        // Если включен AI, отключаем CSS фильтры предпросмотра
-        if (aiSwitch && aiSwitch.checked) {
-            imagePreview.style.filter = 'none';
-            return;
-        }
-
-        const b = document.getElementById('brightness_beta')?.value || 15;
-        const c = document.getElementById('contrast_alpha')?.value || 1.15;
-        const s = document.getElementById('saturation_factor')?.value || 1.3;
-        const d = document.getElementById('denoise_h')?.value || 15.0;
-
-        // Индикаторы
-        if(document.getElementById('brightnessValue')) document.getElementById('brightnessValue').innerText = b;
-        if(document.getElementById('contrastValue')) document.getElementById('contrastValue').innerText = c;
-        if(document.getElementById('saturationValue')) document.getElementById('saturationValue').innerText = s;
-        if(document.getElementById('denoiseValue')) document.getElementById('denoiseValue').innerText = d;
-
-        // Симуляция параметров для предпросмотра на стороне пользователя
-        if (!imagePreview.dataset.isVideo) {
-            const brightCSS = (100 + parseInt(b)) / 100;
-            const blurCSS = d / 40;
-            imagePreview.style.filter = `brightness(${brightCSS}) contrast(${c}) saturate(${s}) blur(${blurCSS}px)`;
-        } else {
-            imagePreview.style.filter = 'none';
-        }
-    }
-
-    // Логика переключателя AI
-    if (aiSwitch && manualSettingsGroup) {
-        aiSwitch.addEventListener('change', function() {
-            if (this.checked) {
-                // Визуально блокируем ручные настройки
-                manualSettingsGroup.style.opacity = '0.4';
-                manualSettingsGroup.style.pointerEvents = 'none';
-            } else {
-                // Возвращаем доступ к настройкам
-                manualSettingsGroup.style.opacity = '1';
-                manualSettingsGroup.style.pointerEvents = 'all';
-            }
-            applyLiveFilters(); // Обновляем предпросмотр
-        });
-    }
-
-    // Загрузка и использование файлов
+    // Функция предпросмотра выбранного файла
     if (fileInput && imagePreview) {
         fileInput.addEventListener('change', function() {
             const file = this.files[0];
             if (file) {
-                const isVideo = file.type.startsWith('video/');
-
-                if (isVideo) {
-                    imagePreview.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' fill='%23666' viewBox='0 0 16 16'%3E%3Cpath d='M0 1a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V1zm4 0v6h8V1H4zm8 8H4v6h8V9zM1 1v2h2V1H1zm2 3H1v2h2V4zM1 7v2h2V7H1zm2 3H1v2h2v-2zm-2 3v2h2v-2H1zM15 1h-2v2h2V1zm-2 3v2h2V4h-2zm2 3h-2v2h2V7zm-2 3v2h2v-2h-2zm2 3h-2v2h2v-2z'/%3E%3C/svg%3E";
-                    imagePreview.dataset.isVideo = "true";
-                    if (placeholder) placeholder.innerHTML = "<p class='text-warning'>Предпросмотр видео недоступен.<br>Нажмите 'Обработать', чтобы увидеть результат.</p>";
-                } else {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        imagePreview.src = e.target.result;
-                        delete imagePreview.dataset.isVideo;
-                        if (placeholder) placeholder.innerHTML = "<p>Выберите фото для предпросмотра</p>";
-                        applyLiveFilters();
-                    }
-                    reader.readAsDataURL(file);
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    imagePreview.src = e.target.result;
+                    imagePreview.classList.remove('d-none');
+                    if (placeholder) placeholder.classList.add('d-none');
                 }
-
-                imagePreview.classList.remove('d-none');
-                imagePreview.style.display = 'block';
-                if (placeholder) {
-                    placeholder.classList.add('d-none');
-                    placeholder.style.display = 'none';
-                    if (isVideo) {
-                        placeholder.classList.remove('d-none');
-                        placeholder.style.display = 'block';
-                    }
-                }
-                applyLiveFilters();
+                reader.readAsDataURL(file);
             }
-        });
-
-        document.querySelectorAll('.form-range').forEach(slider => {
-            slider.addEventListener('input', applyLiveFilters);
         });
     }
 
-    // Сброс параметров до стандартных
-    if (resetBtn) {
-        resetBtn.addEventListener('click', function() {
-            const defaults = {
-                'brightness_beta': 15,
-                'contrast_alpha': 1.15,
-                'saturation_factor': 1.3,
-                'denoise_h': 15.0,
-                'sharpness_factor': 1.0
-            };
-            for (let id in defaults) {
-                const slider = document.getElementById(id);
-                if (slider) slider.value = defaults[id];
-            }
-            // Сбрасываем и чекбокс AI при нажатии "Сброс", если нужно
-            if (aiSwitch) {
-                aiSwitch.checked = false;
-                manualSettingsGroup.style.opacity = '1';
-                manualSettingsGroup.style.pointerEvents = 'all';
-            }
-            applyLiveFilters();
-        });
-    }
-
-    // Сравнение фото до/после обработки
+    // Логика слайдера сравнения (До/После) — оставляем, если используете compare.html
     const compSlider = document.getElementById('slider');
     const processedWrapper = document.getElementById('processedImage');
     const container = document.querySelector('.comparison-container');
@@ -144,5 +42,16 @@ document.addEventListener('DOMContentLoaded', function() {
         compSlider.addEventListener('input', syncSlider);
         window.addEventListener('resize', syncSlider);
         syncSlider();
+    }
+
+    const aiSwitch = document.getElementById('use_ai');
+    const desc = document.getElementById('methodDescription');
+
+    if (aiSwitch && desc) {
+        aiSwitch.addEventListener('change', function() {
+            desc.innerText = this.checked 
+                ? "Метод Zero-DCE++: лучшее качество для очень темных кадров." 
+                : "Алгоритм CLAHE: быстрая цифровая коррекция освещения.";
+        });
     }
 });

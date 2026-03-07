@@ -191,12 +191,12 @@ def dashboard():
         return redirect(url_for('login'))
     
     db = get_db_connection()
+    cursor = db.cursor(dictionary=True)
+    
     try:
-        cursor = db.cursor(dictionary=True)
-        
         # 1. Проверка лимита хранения
         cursor.execute("SELECT COUNT(*) as count FROM images WHERE user_id = %s", (session['user_id'],))
-        if cursor.fetchone()['count'] > 100:
+        if cursor.fetchone()['count'] >= 100:
             flash("Лимит хранения (100) исчерпан.", "error")
             return redirect(url_for('dashboard'))
 
@@ -217,19 +217,17 @@ def dashboard():
                     flash("Файл слишком большой!", "error")
                     return redirect(url_for('dashboard'))
 
-                # 3. Параметры обработки (для классического метода)
-                if 'auto_process' in request.form:
-                    params = {'denoise_h': 10.0, 'saturation_factor': 1.2, 'sharpness_factor': 1.0,
-                              'contrast_alpha': 1.1, 'brightness_beta': 5.0}
-                else:
-                    params = {
-                        'denoise_h': float(request.form.get('denoise_h', 15.0)),
-                        'saturation_factor': float(request.form.get('saturation_factor', 1.3)),
-                        'sharpness_factor': float(request.form.get('sharpness_factor', 1.0)),
-                        'contrast_alpha': float(request.form.get('contrast_alpha', 1.15)),
-                        'brightness_beta': float(request.form.get('brightness_beta', 15))
-                    }
+                # 3. ФИКСИРОВАННЫЕ ПАРАМЕТРЫ (Пользователь больше их не выбирает)
+                params = {
+                    'denoise_h': 15.0,
+                    'saturation_factor': 1.3,
+                    'sharpness_factor': 1.0,
+                    'contrast_alpha': 1.15,
+                    'brightness_beta': 15
+                }
 
+                # Проверяем только наличие галочки AI
+                use_ai = 'use_ai' in request.form
                 u_id = uuid.uuid4().hex
 
                 # --- ОБРАБОТКА ВИДЕО ---
@@ -246,23 +244,22 @@ def dashboard():
                     was_compressed = image_processor.resize_video_if_needed(p_in, p_compressed)
                     input_for_processing = p_compressed if was_compressed else p_in
 
-                    # Основной фильтр улучшения
-                    if image_processor.process_video(input_for_processing, p_out, **params):
+                    # Основной фильтр улучшения (передаем флаг use_ai и фиксированные параметры)
+                    if image_processor.process_video(input_for_processing, p_out, params, use_ai=use_ai):
                         if was_compressed and os.path.exists(p_compressed):
                             os.remove(p_compressed)
 
                         cursor.execute(
                             "INSERT INTO images (user_id, filename_original, filename_processed, brightness_beta, contrast_alpha) VALUES (%s,%s,%s,%s,%s)",
-                            (session['user_id'], filename_orig, filename_proc, params['brightness_beta'],
-                             params['contrast_alpha']))
+                            (session['user_id'], filename_orig, filename_proc, params['brightness_beta'], params['contrast_alpha']))
                         db.commit()
                         
-                        msg = "Видео сжато до 720p и обработано!" if was_compressed else "Видео успешно обработано!"
+                        msg = "Видео сжато и обработано!" if was_compressed else "Видео успешно обработано!"
                         flash(msg, "success")
-                        return redirect(url_for('dashboard'))
                     else:
                         flash("Ошибка при обработке видео", "error")
-                        return redirect(url_for('dashboard'))
+                    
+                    return redirect(url_for('dashboard'))
 
                 # --- ОБРАБОТКА ФОТО ---
                 else:
@@ -273,20 +270,17 @@ def dashboard():
                     with open(p_orig, 'wb') as f:
                         f.write(file_data)
 
-                    # ПРОВЕРЯЕМ: Выбрал ли пользователь AI?
-                    if 'use_ai' in request.form:
-                        # Формируем пути к моделям явно
+                    if use_ai:
+                        # Каскад нейросетей
                         m_path = os.path.join('models', 'zero_dce_pp.pth')
                         dn_path = os.path.join('models', 'nafnet_denoiser.pth')
-                        
-                        # Вызываем AI-улучшение с каскадом нейросетей
                         proc_io = image_processor.enhance_image_ai(
                             io.BytesIO(file_data), 
                             model_path=m_path, 
                             denoise_path=dn_path
                         )
                     else:
-                        # Используем классический метод (CLAHE + Фильтры)
+                        # Классический метод с фиксированными параметрами
                         proc_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_data), **params)
 
                     if proc_io:
@@ -297,15 +291,17 @@ def dashboard():
                             
                         cursor.execute(
                             "INSERT INTO images (user_id, filename_original, filename_processed, brightness_beta, contrast_alpha) VALUES (%s,%s,%s,%s,%s)",
-                            (session['user_id'], filename_orig, filename_proc, params['brightness_beta'],
-                             params['contrast_alpha']))
+                            (session['user_id'], filename_orig, filename_proc, params['brightness_beta'], params['contrast_alpha']))
                         db.commit()
                         
-                        mode_name = "AI каскад" if 'use_ai' in request.form else "стандартный фильтр"
-                        flash(f"Фото готово (использован {mode_name})!", "success")
-                        return redirect(url_for('dashboard'))
+                        mode_label = "AI" if use_ai else "Алгоритм"
+                        flash(f"Фото обработано ({mode_label})", "success")
+                    else:
+                        flash("Ошибка при обработке фото", "error")
+                        
+                    return redirect(url_for('dashboard'))
 
-        # GET-запрос: загружаем список всех файлов пользователя
+        # GET-запрос: загружаем список файлов
         cursor.execute("SELECT * FROM images WHERE user_id = %s ORDER BY upload_date DESC", (session['user_id'],))
         images = cursor.fetchall()
         return render_template('dashboard.html', images=images)
@@ -325,57 +321,57 @@ def guest_mode():
     processed_url = None
     
     if request.method == 'POST':
-        # 1. Получаем IP пользователя (используем уже импортированный метод)
+        # 1. Получаем IP пользователя
         user_ip = get_remote_address() 
         
-        # 2. Проверяем лимит в базе данных
+        # 2. Проверяем лимит в базе данных (5 фото в день)
         if not can_guest_process(user_ip):
-            flash("Лимит для гостей (5 фото в день) исчерпан! Пожалуйста, зарегистрируйтесь.", "error")
+            flash("Лимит для гостей исчерпан! Пожалуйста, зарегистрируйтесь.", "error")
             return redirect(url_for('guest_mode'))
 
         file = request.files.get('file')
         if file and allowed_file(file.filename):
             try:
                 ext = file.filename.rsplit('.', 1)[1].lower()
-                # Запрет видео для гостей
+                
+                # Запрет видео для гостей (оставляем проверку для безопасности)
                 if ext in {'mp4', 'mov', 'avi'}:
                     flash("Видео доступно только зарегистрированным пользователям!", "error")
                     return redirect(url_for('guest_mode'))
 
                 file_stream = file.read()
+                
                 # Проверка разрешения изображения
                 with Image.open(io.BytesIO(file_stream)) as img:
                     if img.width * img.height > MAX_IMAGE_PIXELS:
                         flash("Изображение слишком большое!", "error")
-                        return redirect(request.url)
+                        return redirect(url_for('guest_mode'))
 
-                # Настройка параметров (Авто или Ручные)
-                if 'auto_process' in request.form:
-                    params = {
-                        'denoise_h': 10.0, 'saturation_factor': 1.2, 
-                        'sharpness_factor': 1.0, 'contrast_alpha': 1.1, 
-                        'brightness_beta': 5.0
-                    }
-                else:
-                    params = {
-                        'denoise_h': max(0.0, min(float(request.form.get('denoise_h', 15.0)), 20.0)),
-                        'saturation_factor': max(0.5, min(float(request.form.get('saturation_factor', 1.3)), 2.0)),
-                        'sharpness_factor': max(0.0, min(float(request.form.get('sharpness_factor', 1.0)), 3.0)),
-                        'contrast_alpha': max(1.0, min(float(request.form.get('contrast_alpha', 1.15)), 3.0)),
-                        'brightness_beta': max(-100.0, min(float(request.form.get('brightness_beta', 15)), 100.0))
-                    }
+                # 3. ФИКСИРОВАННЫЕ ПАРАМЕТРЫ ДЛЯ ГОСТЯ
+                # Мы полностью убрали чтение из request.form
+                params = {
+                    'denoise_h': 15.0,
+                    'saturation_factor': 1.3,
+                    'sharpness_factor': 1.0,
+                    'contrast_alpha': 1.15,
+                    'brightness_beta': 15
+                }
 
-                # Вызов процессора обработки
+                # 4. Вызов процессора (только CLAHE, без проверки use_ai)
+                # Передаем BytesIO, так как мы прочитали файл для проверки Image.open
                 proc_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_stream), **params)
                 
                 if proc_io:
                     # Создаем уникальное имя файла для гостя
                     filename = f"guest_{uuid.uuid4().hex}.jpg"
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    
                     with open(save_path, 'wb') as f:
                         f.write(proc_io.getbuffer())
-                    processed_url = filename
                     
+                    processed_url = filename
+                    flash("Изображение успешно обработано стандартным алгоритмом!", "success")
+                
             except Exception as e:
                 print(f"Ошибка в guest_mode: {e}")
                 flash("Произошла ошибка при обработке.", "error")
