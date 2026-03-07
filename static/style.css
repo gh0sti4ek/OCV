@@ -15,6 +15,7 @@ body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
+/* Навигация */
 .navbar {
     background-color: rgba(15, 23, 42, 0.9) !important;
     backdrop-filter: blur(8px);
@@ -26,6 +27,7 @@ body {
     color: var(--accent) !important;
 }
 
+/* Карточки и контейнеры */
 .card {
     background-color: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -51,6 +53,12 @@ h1, h2, h3, h4, h5, h6 {
     border: none !important;
     color: #0f172a !important; 
     font-weight: 700;
+    transition: all 0.2s ease;
+}
+
+.btn-primary:hover, .btn-warning:hover {
+    background-color: var(--accent-hover) !important;
+    transform: translateY(-1px);
 }
 
 .btn-outline-light {
@@ -58,20 +66,37 @@ h1, h2, h3, h4, h5, h6 {
     color: var(--text-secondary);
 }
 
+/* Поля ввода */
 .form-control {
     background-color: #020617;
     border: 1px solid var(--border-color);
     color: #fff;
 }
 
-.form-range::-webkit-slider-thumb {
-    background: var(--accent);
+.form-control:focus {
+    background-color: #020617;
+    border-color: var(--accent);
+    color: #fff;
+    box-shadow: 0 0 0 0.25rem rgba(56, 189, 248, 0.25);
 }
 
 .text-warning {
     color: var(--accent) !important;
 }
 
+/* Контейнер предпросмотра (сделали чуть выше и аккуратнее) */
+#previewContainer {
+    min-height: 450px;
+    background-color: #000;
+    border: 2px dashed var(--border-color) !important;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+/* Слайдер сравнения ДО / ПОСЛЕ (для страницы сравнения) */
 .comparison-container {
     position: relative;
     width: 100%;
@@ -110,6 +135,7 @@ h1, h2, h3, h4, h5, h6 {
     border-right: 2px solid var(--accent);
 }
 
+/* Прозрачный ползунок поверх сравнения */
 #slider {
     position: absolute;
     -webkit-appearance: none;
@@ -152,6 +178,7 @@ h1, h2, h3, h4, h5, h6 {
     box-shadow: 0 0 15px rgba(0,0,0,0.5);
 }
 
+/* Таблицы истории */
 .table {
     color: var(--text-secondary);
 }
