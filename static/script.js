@@ -1,10 +1,9 @@
 document.addEventListener('DOMContentLoaded', function() {
-    // Общие константы
+    // === 1. Предпросмотр выбранного файла ===
     const fileInput = document.getElementById('fileInput');
     const imagePreview = document.getElementById('imagePreview');
     const placeholder = document.getElementById('previewPlaceholder');
 
-    // Функция предпросмотра выбранного файла
     if (fileInput && imagePreview) {
         fileInput.addEventListener('change', function() {
             const file = this.files[0];
@@ -20,7 +19,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Логика слайдера сравнения (До/После) — оставляем, если используете compare.html
+    // === 2. Слайдер сравнения (До/После) ===
     const compSlider = document.getElementById('slider');
     const processedWrapper = document.getElementById('processedImage');
     const container = document.querySelector('.comparison-container');
@@ -44,6 +43,7 @@ document.addEventListener('DOMContentLoaded', function() {
         syncSlider();
     }
 
+    // === 3. Переключатель описания методов (AI / CLAHE) ===
     const aiSwitch = document.getElementById('use_ai');
     const desc = document.getElementById('methodDescription');
 
@@ -53,5 +53,41 @@ document.addEventListener('DOMContentLoaded', function() {
                 ? "Метод Zero-DCE++: лучшее качество для очень темных кадров." 
                 : "Алгоритм CLAHE: быстрая цифровая коррекция освещения.";
         });
+    }
+
+    // === 4. Асинхронное обновление статуса задач (Polling) ===
+    const checkTaskStatus = async () => {
+        // Ищем все элементы на странице, которые помечены как "в обработке"
+        // Предполагается, что в HTML у таких карточек есть класс .task-processing 
+        // и атрибут data-task-id
+        const processingItems = document.querySelectorAll('.task-processing');
+
+        if (processingItems.length === 0) return;
+
+        for (let item of processingItems) {
+            const taskId = item.getAttribute('data-task-id');
+            if (!taskId) continue;
+
+            try {
+                const response = await fetch(`/task_status/${taskId}`);
+                const data = await response.json();
+
+                if (data.status === 'ready') {
+                    // Если готово — просто перезагружаем страницу, чтобы увидеть результат
+                    // Или можно точечно заменить контент через JS
+                    window.location.reload();
+                } else if (data.status === 'error') {
+                    item.innerHTML = "<span class='text-danger'>Ошибка обработки</span>";
+                    item.classList.remove('task-processing');
+                }
+            } catch (error) {
+                console.error('Ошибка при проверке статуса:', error);
+            }
+        }
+    };
+
+    // Запускаем проверку каждые 3 секунды, если есть активные задачи
+    if (document.querySelectorAll('.task-processing').length > 0) {
+        setInterval(checkTaskStatus, 3000);
     }
 });

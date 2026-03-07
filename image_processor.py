@@ -46,7 +46,10 @@ def enhance_low_light_clahe(image_data, denoise_h, saturation_factor, sharpness_
         # БЛОК 1: Улучшение Яркости
         lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=DEFAULT_CLIP_LIMIT, tileGridSize=(8, 8))
+        height, width = l.shape
+        grid_h = max(1, height // 64) # Например, делим на 64 части
+        grid_w = max(1, width // 64)
+        clahe = cv2.createCLAHE(clipLimit=DEFAULT_CLIP_LIMIT, tileGridSize=(grid_w, grid_h))
         cl = clahe.apply(l)
         limg = cv2.merge((cl, a, b))
         clahe_img = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
@@ -129,7 +132,10 @@ def process_video(input_path, output_path, denoise_h, saturation_factor, sharpne
             # 1. БЛОК 1: Улучшение Яркости
             lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
             l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=DEFAULT_CLIP_LIMIT, tileGridSize=(8, 8))
+            height, width = l.shape
+            grid_h = max(1, height // 64) # Например, делим на 64 части
+            grid_w = max(1, width // 64)
+            clahe = cv2.createCLAHE(clipLimit=DEFAULT_CLIP_LIMIT, tileGridSize=(grid_w, grid_h))
             cl = clahe.apply(l)
             frame = cv2.cvtColor(cv2.merge((cl, a, b)), cv2.COLOR_LAB2BGR)
 
@@ -308,6 +314,7 @@ def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth', denoise_pa
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+        # 1. Zero-DCE++ (Улучшение освещения)
         model = DCENet_pp().to(device)
         model.load_state_dict(torch.load(model_path, map_location=device))
         model.eval()
@@ -323,10 +330,9 @@ def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth', denoise_pa
                 enhanced_img = enhanced_img + A * (torch.pow(enhanced_img, 2) - enhanced_img)
             enhanced_img = torch.clamp(enhanced_img, 0, 1)
 
-        # 4. Прогон через NAFNet (Удаление шума)
+        # 2. NAFNet (Удаление шума)
         dn_model = NAFNet(width=32).to(device)
         checkpoint = torch.load(denoise_path, map_location=device)
-        
         state_dict = checkpoint['params'] if 'params' in checkpoint else checkpoint
         dn_model.load_state_dict(state_dict, strict=False)
         dn_model.eval()
@@ -334,22 +340,29 @@ def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth', denoise_pa
         with torch.no_grad():
             _, _, h, w = enhanced_img.size()
 
-            pad_h = (8 - h % 8) % 8
-            pad_w = (8 - w % 8) % 8
+            # Увеличиваем кратность до 32 для более стабильной работы сверток
+            factor = 32
+            pad_h = (factor - h % factor) % factor
+            pad_w = (factor - w % factor) % factor
 
+            # Используем reflect padding, чтобы избежать черных границ
             input_padded = F.pad(enhanced_img, (0, pad_w, 0, pad_h), mode='reflect')
 
             final_tensor = dn_model(input_padded)
-
             final_tensor = final_tensor[:, :, :h, :w]
             
+            # Небольшое смешивание с входом для уменьшения артефактов (0.9 нейросеть / 0.1 оригинал)
+            final_tensor = torch.lerp(enhanced_img, final_tensor, 0.9)
             final_tensor = torch.clamp(final_tensor, 0, 1)
 
         result = final_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
         result = (result * 255).astype(np.uint8)
         final_img = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
 
-        final_img = cv2.filter2D(final_img, -1, DEFAULT_SHARPENING_KERNEL)
+        # 3. Мягкое повышение резкости (Unsharp Mask вместо filter2D)
+        # Это предотвращает появление "лесенки" и шахматного паттерна
+        gaussian_blur = cv2.GaussianBlur(final_img, (0, 0), 2.0)
+        final_img = cv2.addWeighted(final_img, 1.5, gaussian_blur, -0.5, 0)
 
         is_success, buffer = cv2.imencode(".jpg", final_img)
         return io.BytesIO(buffer) if is_success else None

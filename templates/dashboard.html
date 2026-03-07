@@ -61,32 +61,51 @@
                 <tbody>
                     {% for img in images %}
                         {% set is_video = img.filename_processed.lower().endswith(('.mp4', '.mov', '.avi')) %}
-                        <tr>
+                        {# Добавляем класс и ID задачи для JS-поллинга, если статус 'processing' #}
+                        <tr {% if img.status == 'processing' %} class="task-processing" data-task-id="{{ img.task_id }}" {% endif %}>
                             <td class="small">{{ img.upload_date.strftime('%d.%m %H:%M') }}</td>
-                            <td class="small">Я:{{ img.brightness_beta }} К:{{ img.contrast_alpha | round(1) }}</td>
+                            <td class="small">
+                                {% if img.status == 'processing' %}
+                                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                    <span class="ms-1">Обработка...</span>
+                                {% else %}
+                                    Стандарт
+                                {% endif %}
+                            </td>
                             <td>
-                                {% if is_video %}
-                                    <div class="rounded d-flex align-items-center justify-content-center bg-secondary" style="width: 40px; height: 40px; border: 1px solid #444;">
-                                        <i class="bi bi-play-fill text-white"></i>
+                                {% if img.status == 'processing' %}
+                                    <div class="rounded d-flex align-items-center justify-content-center bg-secondary" style="width: 40px; height: 40px; border: 1px solid #444; opacity: 0.5;">
+                                        <i class="bi bi-hourglass-split text-white"></i>
                                     </div>
                                 {% else %}
-                                    <img src="{{ url_for('static', filename='uploads/' + img.filename_original) }}" width="40" height="40" class="rounded shadow-sm" style="object-fit: cover; border: 1px solid #444;">
+                                    {% if is_video %}
+                                        <div class="rounded d-flex align-items-center justify-content-center bg-secondary" style="width: 40px; height: 40px; border: 1px solid #444;">
+                                            <i class="bi bi-play-fill text-white"></i>
+                                        </div>
+                                    {% else %}
+                                        <img src="{{ url_for('static', filename='uploads/' + img.filename_original) }}" width="40" height="40" class="rounded shadow-sm" style="object-fit: cover; border: 1px solid #444;">
+                                    {% endif %}
                                 {% endif %}
                             </td>
                             <td class="text-end">
                                 <div class="d-flex justify-content-end gap-2">
-                                    {% if is_video %}
-                                        <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}" target="_blank" class="btn btn-outline-warning btn-sm">Смотреть</a>
-                                        <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}" download="processed_video.mp4" class="btn btn-success btn-sm"><i class="bi bi-download"></i> Скачать</a>
-                                    {% else %}
-                                        <a href="{{ url_for('compare', image_id=img.id) }}" class="btn btn-outline-primary btn-sm">Сравнить</a>
-                                        <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}" download="processed_image.jpg" class="btn btn-success btn-sm"><i class="bi bi-download"></i> Скачать</a>
-                                    {% endif %}
+                                    {# Кнопки управления показываем только когда файл готов (status != 'processing') #}
+                                    {% if img.status != 'processing' %}
+                                        {% if is_video %}
+                                            <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}" target="_blank" class="btn btn-outline-warning btn-sm">Смотреть</a>
+                                            <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}" download="processed_video.mp4" class="btn btn-success btn-sm"><i class="bi bi-download"></i> Скачать</a>
+                                        {% else %}
+                                            <a href="{{ url_for('compare', image_id=img.id) }}" class="btn btn-outline-primary btn-sm">Сравнить</a>
+                                            <a href="{{ url_for('static', filename='uploads/' + img.filename_processed) }}" download="processed_image.jpg" class="btn btn-success btn-sm"><i class="bi bi-download"></i> Скачать</a>
+                                        {% endif %}
 
-                                    <form action="{{ url_for('delete_image', image_id=img.id) }}" method="POST" onsubmit="return confirm('Вы уверены?');" style="display: inline;">
-                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <button type="submit" class="btn btn-outline-danger btn-sm">Удалить</button>
-                                    </form>
+                                        <form action="{{ url_for('delete_image', image_id=img.id) }}" method="POST" onsubmit="return confirm('Вы уверены?');" style="display: inline;">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm">Удалить</button>
+                                        </form>
+                                    {% else %}
+                                        <span class="badge bg-secondary">В очереди</span>
+                                    {% endif %}
                                 </div>
                             </td>
                         </tr>
