@@ -184,7 +184,6 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
-# Профиль, обработка фото и видео пользователя
 @app.route('/dashboard', methods=['GET', 'POST'])
 def dashboard():
     if 'user_id' not in session: 
@@ -193,6 +192,9 @@ def dashboard():
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
     
+    # Импортируем задачи один раз в начале функции
+    from tasks import process_video_task, process_photo_task
+
     try:
         # 1. Проверка лимита хранения
         cursor.execute("SELECT COUNT(*) as count FROM images WHERE user_id = %s", (session['user_id'],))
@@ -203,7 +205,7 @@ def dashboard():
         if request.method == 'POST':
             file = request.files.get('file')
             if file and allowed_file(file.filename):
-                # Измеряем размер файла
+                # Проверка размера
                 file.seek(0, os.SEEK_END)
                 file_size = file.tell()
                 file.seek(0)
@@ -211,13 +213,12 @@ def dashboard():
                 ext = file.filename.rsplit('.', 1)[1].lower()
                 is_video_ext = ext in {'mp4', 'mov', 'avi'}
 
-                # 2. Проверка размера (видео 50МБ, фото 10МБ)
                 if (is_video_ext and file_size > 50 * 1024 * 1024) or (
                         not is_video_ext and file_size > 10 * 1024 * 1024):
                     flash("Файл слишком большой!", "error")
                     return redirect(url_for('dashboard'))
 
-                # 3. ФИКСИРОВАННЫЕ ПАРАМЕТРЫ (Пользователь больше их не выбирает)
+                # Параметры обработки
                 params = {
                     'denoise_h': 15.0,
                     'saturation_factor': 1.3,
@@ -226,91 +227,49 @@ def dashboard():
                     'brightness_beta': 15
                 }
 
-                # Проверяем только наличие галочки AI
                 use_ai = 'use_ai' in request.form
                 u_id = uuid.uuid4().hex
+                
+                # Сохраняем оригинал
+                filename_orig = f"raw_{u_id}.{ext}"
+                p_orig_full = os.path.join(app.config['UPLOAD_FOLDER'], filename_orig)
+                file.save(p_orig_full)
 
-                # --- ОБРАБОТКА ВИДЕО ---
+                # Выбор задачи в зависимости от типа файла
                 if is_video_ext:
-                    filename_orig = f"raw_{u_id}.{ext}"
                     filename_proc = f"proc_{u_id}.mp4"
-                    p_in = os.path.join(app.config['UPLOAD_FOLDER'], filename_orig)
-                    p_out = os.path.join(app.config['UPLOAD_FOLDER'], filename_proc)
-                    file.save(p_in)
-
-                    p_compressed = os.path.join(app.config['UPLOAD_FOLDER'], f"res_{u_id}.mp4")
-                    
-                    # Сжатие до 720p (если оригинал больше)
-                    was_compressed = image_processor.resize_video_if_needed(p_in, p_compressed)
-                    input_for_processing = p_compressed if was_compressed else p_in
-
-                    # Основной фильтр улучшения (передаем флаг use_ai и фиксированные параметры)
-                    if image_processor.process_video(input_for_processing, p_out, params, use_ai=use_ai):
-                        if was_compressed and os.path.exists(p_compressed):
-                            os.remove(p_compressed)
-
-                        cursor.execute(
-                            "INSERT INTO images (user_id, filename_original, filename_processed, brightness_beta, contrast_alpha) VALUES (%s,%s,%s,%s,%s)",
-                            (session['user_id'], filename_orig, filename_proc, params['brightness_beta'], params['contrast_alpha']))
-                        db.commit()
-                        
-                        msg = "Видео сжато и обработано!" if was_compressed else "Видео успешно обработано!"
-                        flash(msg, "success")
-                    else:
-                        flash("Ошибка при обработке видео", "error")
-                    
-                    return redirect(url_for('dashboard'))
-
-                # --- ОБРАБОТКА ФОТО ---
+                    # ВАЖНО: передаем filename_orig (только имя), а не p_orig_full (путь)
+                    task = process_video_task.delay(filename_orig, filename_proc, params, use_ai)
                 else:
-                    file_data = file.read()
-                    filename_orig = f"{u_id}.{ext}"
-                    p_orig = os.path.join(app.config['UPLOAD_FOLDER'], filename_orig)
-                    
-                    with open(p_orig, 'wb') as f:
-                        f.write(file_data)
+                    filename_proc = f"proc_{u_id}.jpg"
+                    model_paths = {
+                        'model': os.path.join('models', 'zero_dce_pp.pth'),
+                        'denoise': os.path.join('models', 'nafnet_denoiser.pth')
+                    }
+                    # ВАЖНО: передаем filename_orig
+                    task = process_photo_task.delay(filename_orig, filename_proc, use_ai, params, model_paths)
 
-                    if use_ai:
-                        # Каскад нейросетей
-                        m_path = os.path.join('models', 'zero_dce_pp.pth')
-                        dn_path = os.path.join('models', 'nafnet_denoiser.pth')
-                        proc_io = image_processor.enhance_image_ai(
-                            io.BytesIO(file_data), 
-                            model_path=m_path, 
-                            denoise_path=dn_path
-                        )
-                    else:
-                        # Классический метод с фиксированными параметрами
-                        proc_io = image_processor.enhance_low_light_clahe(io.BytesIO(file_data), **params)
+                # Запись в БД со статусом 'processing' и task_id для фронтенда
+                cursor.execute(
+                    """INSERT INTO images 
+                       (user_id, filename_original, filename_processed, status, task_id) 
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (session['user_id'], filename_orig, filename_proc, 'processing', task.id)
+                )
+                db.commit()
+                
+                flash("Файл поставлен в очередь на обработку!", "success")
+                return redirect(url_for('dashboard'))
 
-                    if proc_io:
-                        filename_proc = f"proc_{u_id}.jpg"
-                        p_proc = os.path.join(app.config['UPLOAD_FOLDER'], filename_proc)
-                        with open(p_proc, 'wb') as f_out: 
-                            f_out.write(proc_io.getbuffer())
-                            
-                        cursor.execute(
-                            "INSERT INTO images (user_id, filename_original, filename_processed, brightness_beta, contrast_alpha) VALUES (%s,%s,%s,%s,%s)",
-                            (session['user_id'], filename_orig, filename_proc, params['brightness_beta'], params['contrast_alpha']))
-                        db.commit()
-                        
-                        mode_label = "AI" if use_ai else "Алгоритм"
-                        flash(f"Фото обработано ({mode_label})", "success")
-                    else:
-                        flash("Ошибка при обработке фото", "error")
-                        
-                    return redirect(url_for('dashboard'))
-
-        # GET-запрос: загружаем список файлов
+        # GET запрос: выводим список файлов пользователя
         cursor.execute("SELECT * FROM images WHERE user_id = %s ORDER BY upload_date DESC", (session['user_id'],))
         images = cursor.fetchall()
         return render_template('dashboard.html', images=images)
 
     except Exception as e:
         print(f"Ошибка в роуте dashboard: {e}")
-        flash("Произошла ошибка при обработке файла.", "error")
+        flash("Произошла ошибка при обработке.", "error")
         return redirect(url_for('dashboard'))
-
     finally:
         cursor.close()
         db.close()
@@ -413,6 +372,16 @@ def delete_image(image_id):
     finally:
         cursor.close(); db.close()
     return redirect(url_for('dashboard'))
+
+@app.route('/task_status/<task_id>')
+def task_status(task_id):
+    db = get_db_connection()
+    cursor = db.cursor(dictionary=True)
+    cursor.execute("SELECT status FROM images WHERE task_id = %s", (task_id,))
+    result = cursor.fetchone()
+    cursor.close()
+    db.close()
+    return {"status": result['status'] if result else "error"}
 
 if __name__ == '__main__':
     app.run(debug=False)
