@@ -8,11 +8,11 @@
 
 <div class="comparison-container shadow-lg">
     <div class="image-wrapper original">
-        <img src="{{ url_for('static', filename='uploads/' + image.filename_original) }}" alt="Original">
+        <img src="http://127.0.0.1:9000/uploads/{{ image.filename_original }}" alt="Original">
     </div>
 
     <div class="image-wrapper processed" id="processedImage">
-        <img src="{{ url_for('static', filename='uploads/' + image.filename_processed) }}" alt="Processed">
+        <img src="http://127.0.0.1:9000/uploads/{{ image.filename_processed }}" alt="Processed">
     </div>
 
     <input type="range" min="0" max="100" value="50" class="slider" id="slider" oninput="moveSlider()">

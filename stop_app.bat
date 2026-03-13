@@ -1,8 +1,9 @@
 @echo off
 echo Stopping project services...
 
-:: Закрываем окна по именам, которые мы дали в команде start
+:: пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ start
 taskkill /fi "windowtitle eq Flask App*" /t /f
+taskkill /fi "windowtitle eq MinIO*" /t /f
 taskkill /fi "windowtitle eq Celery Worker*" /t /f
 taskkill /fi "windowtitle eq Redis Server*" /t /f
 

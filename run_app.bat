@@ -1,15 +1,18 @@
 @echo off
-:: Если есть venv, активируем его
 if exist venv\Scripts\activate call venv\Scripts\activate
 
+echo Starting MinIO Server...
+:: Р—Р°РїСѓСЃРєР°РµРј СЃРµСЂРІРµСЂ MinIO. РЈР±РµРґРёСЃСЊ, С‡С‚Рѕ РїСѓС‚СЊ C:\minio_server\data СЃСѓС‰РµСЃС‚РІСѓРµС‚
+start "MinIO" cmd /k "C:\minio_server\minio.exe server C:\minio_server\data --console-address :9001"
+
 echo Starting Redis...
-:: Проверь, что redis-server.exe доступен глобально, иначе укажи полный путь
 start "Redis Server" redis-server.exe
 
 echo Starting Celery Worker...
+:: РЈ С‚РµР±СЏ РІ Р±Р°С‚РЅРёРєРµ РѕС€РёР±РєР°: С„Р°Р№Р» РЅР°Р·С‹РІР°РµС‚СЃСЏ tasks.py, Р° РІ РєРѕРјР°РЅРґРµ СѓРєР°Р·Р°РЅРѕ -A tasks
 start "Celery Worker" cmd /k "python -m celery -A tasks worker --loglevel=info --pool=solo"
+
 echo Starting Flask App...
-:: Укажи хост, чтобы было удобнее заходить
 start "Flask App" cmd /k "python app.py"
 
 echo All services are starting up.

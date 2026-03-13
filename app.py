@@ -13,6 +13,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import time
 from datetime import date
+from tasks import s3_client
 import image_processor # Импорт модуля обработки
 
 load_dotenv()
@@ -25,12 +26,12 @@ app.secret_key = os.getenv('SECRET_KEY')
 csrf = CSRFProtect(app)
 
 csp = {
-    'default-src': '\'self\'',
-    'style-src': ['\'self\'', 'https://cdn.jsdelivr.net', '\'unsafe-inline\''],
-    'script-src': ['\'self\'', 'https://cdn.jsdelivr.net'],
-    'img-src': ['\'self\'', 'data:', 'blob:'],
-    'media-src': ['\'self\'', 'blob:'],
-    'connect-src': ['\'self\'', 'https://cdn.jsdelivr.net']
+    'default-src': "'self'",
+    'style-src': ["'self'", 'https://cdn.jsdelivr.net', "'unsafe-inline'"],
+    'script-src': ["'self'", 'https://cdn.jsdelivr.net'],
+    'img-src': ["'self'", 'data:', 'blob:', 'http://127.0.0.1:9000'],
+    'media-src': ["'self'", 'blob:', 'http://127.0.0.1:9000'],
+    'connect-src': ["'self'", 'https://cdn.jsdelivr.net']
 }
 
 talisman = Talisman(app, content_security_policy=csp, force_https=False)
@@ -355,22 +356,41 @@ def compare(image_id):
 # Удаление фото и видео
 @app.route('/delete/<int:image_id>', methods=['POST'])
 def delete_image(image_id):
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if 'user_id' not in session: 
+        return redirect(url_for('login'))
+    
     db = get_db_connection()
+    bucket_name = os.getenv('S3_BUCKET', 'uploads') #
+    
     try:
         cursor = db.cursor(dictionary=True)
+        # Получаем имена файлов перед удалением записи из БД
         cursor.execute("SELECT filename_original, filename_processed FROM images WHERE id = %s AND user_id = %s",
                        (image_id, session['user_id']))
         image = cursor.fetchone()
+        
         if image:
+            # 1. Удаляем запись из базы данных
             cursor.execute("DELETE FROM images WHERE id = %s", (image_id,))
             db.commit()
+            
+            # 2. Удаляем объекты из MinIO
             for key in ['filename_original', 'filename_processed']:
-                f_p = os.path.join(app.config['UPLOAD_FOLDER'], image[key])
-                if os.path.exists(f_p): os.remove(f_p)
-            flash("Удалено", "success")
+                filename = image[key]
+                if filename:
+                    try:
+                        s3_client.delete_object(Bucket=bucket_name, Key=filename)
+                    except Exception as e:
+                        print(f"Ошибка удаления из S3 ({filename}): {e}")
+            
+            flash("Запись и файлы успешно удалены", "success")
+    except Exception as e:
+        print(f"Ошибка при удалении: {e}")
+        flash("Ошибка при удалении", "error")
     finally:
-        cursor.close(); db.close()
+        cursor.close()
+        db.close()
+        
     return redirect(url_for('dashboard'))
 
 @app.route('/task_status/<task_id>')
