@@ -85,7 +85,7 @@ def process_video_task(self, filename_in, filename_out, params, use_ai):
 
 @celery.task(bind=True)
 def process_photo_task(self, filename_orig, filename_proc, use_ai, params, model_paths):
-    """Фоновая задача для обработки фото"""
+    """Фоновая задача для обработки фото с поддержкой GFPGAN"""
     p_orig = os.path.join('static', 'uploads', filename_orig)
     p_proc = os.path.join('static', 'uploads', filename_proc)
     
@@ -97,10 +97,16 @@ def process_photo_task(self, filename_orig, filename_proc, use_ai, params, model
             file_data = f.read()
         
         if use_ai:
+            # Передаем пути к моделям, включая GFPGAN (путь придет из app.py)
             proc_io = image_processor.enhance_image_ai(
                 io.BytesIO(file_data), 
-                model_path=model_paths['model'], 
-                denoise_path=model_paths['denoise']
+                model_path=model_paths.get('model'), 
+                denoise_path=model_paths.get('denoise'),
+                enhance_faces=params.get('enhance_faces', False)
+                # Путь к GFPGAN теперь обрабатывается внутри image_processor.py 
+                # через get_face_enhancer(), но если ты захочешь сделать его 
+                # настраиваемым, можно добавить: 
+                # gfpgan_path=model_paths.get('gfpgan')
             )
         else:
             proc_io = image_processor.enhance_low_light_clahe(
@@ -113,11 +119,10 @@ def process_photo_task(self, filename_orig, filename_proc, use_ai, params, model
             )
 
         if proc_io:
-            # Сохраняем обработанный результат временно на диск
+            # Сохраняем результат и отправляем в S3
             with open(p_proc, 'wb') as f_out:
                 f_out.write(proc_io.getbuffer())
             
-            # Загружаем в MinIO оригинал и результат, затем удаляем локально
             upload_to_s3_and_cleanup(p_orig, filename_orig)
             upload_to_s3_and_cleanup(p_proc, filename_proc)
             

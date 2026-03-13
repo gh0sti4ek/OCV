@@ -219,7 +219,7 @@ def dashboard():
                     flash("Файл слишком большой!", "error")
                     return redirect(url_for('dashboard'))
 
-                # Параметры обработки
+                # Параметры обработки (теперь они могут использоваться и для видео, и для CLAHE фото)
                 params = {
                     'denoise_h': 15.0,
                     'saturation_factor': 1.3,
@@ -228,10 +228,13 @@ def dashboard():
                     'brightness_beta': 15
                 }
 
+                enhance_faces = 'enhance_faces' in request.form
                 use_ai = 'use_ai' in request.form
                 u_id = uuid.uuid4().hex
                 
-                # Сохраняем оригинал
+                params['enhance_faces'] = enhance_faces
+                
+                # Сохраняем оригинал локально перед отправкой в Celery
                 filename_orig = f"raw_{u_id}.{ext}"
                 p_orig_full = os.path.join(app.config['UPLOAD_FOLDER'], filename_orig)
                 file.save(p_orig_full)
@@ -239,18 +242,21 @@ def dashboard():
                 # Выбор задачи в зависимости от типа файла
                 if is_video_ext:
                     filename_proc = f"proc_{u_id}.mp4"
-                    # ВАЖНО: передаем filename_orig (только имя), а не p_orig_full (путь)
-                    task = process_video_task.delay(filename_orig, filename_proc, params, use_ai)
+                    # Для видео передаем параметры и флаг use_ai
+                    task = process_video_task.delay(filename_orig, filename_proc, params, use_ai, enhance_faces)
                 else:
                     filename_proc = f"proc_{u_id}.jpg"
+                    # Для фото формируем пути ко всем ТРЕМ моделям
                     model_paths = {
                         'model': os.path.join('models', 'zero_dce_pp.pth'),
-                        'denoise': os.path.join('models', 'nafnet_denoiser.pth')
+                        'denoise': os.path.join('models', 'nafnet_denoiser.pth'),
+                        'gfpgan': os.path.join('models', 'GFPGANv1.4.pth') # Важное дополнение
                     }
-                    # ВАЖНО: передаем filename_orig
+                    # Стало (аргумента enhance_faces нет в сигнатуре задачи, передаем его внутри params):
+                    params['enhance_faces'] = enhance_faces 
                     task = process_photo_task.delay(filename_orig, filename_proc, use_ai, params, model_paths)
 
-                # Запись в БД со статусом 'processing' и task_id для фронтенда
+                # Запись в БД со статусом 'processing'
                 cursor.execute(
                     """INSERT INTO images 
                        (user_id, filename_original, filename_processed, status, task_id) 

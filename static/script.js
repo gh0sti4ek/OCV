@@ -45,13 +45,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // === 3. Переключатель описания методов (AI / CLAHE) ===
     const aiSwitch = document.getElementById('use_ai');
+    const faceSwitch = document.getElementById('enhance_faces');
+    const faceWrapper = document.getElementById('faceEnhanceWrapper');
     const desc = document.getElementById('methodDescription');
 
     if (aiSwitch && desc) {
         aiSwitch.addEventListener('change', function() {
-            desc.innerText = this.checked 
+            const isAi = this.checked;
+            desc.innerText = isAi 
                 ? "Метод Zero-DCE++: лучшее качество для очень темных кадров." 
                 : "Алгоритм CLAHE: быстрая цифровая коррекция освещения.";
+            
+            // Скрываем/показываем выбор лиц
+            if (faceWrapper) {
+                faceWrapper.style.opacity = isAi ? "1" : "0.5";
+                faceSwitch.disabled = !isAi;
+            }
         });
     }
 

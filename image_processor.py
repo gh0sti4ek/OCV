@@ -6,6 +6,7 @@ import io
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from gfpgan import GFPGANer
 
 
 # CLAHE (яркость)
@@ -305,7 +306,23 @@ class NAFNet(nn.Module):
 
         return self.ending(x) + inp
 
-def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth', denoise_path='models/nafnet_denoiser.pth'):
+# Глобальные переменные для хранения моделей в памяти
+_face_enhancer = None
+_dce_model = None
+_naf_model = None
+
+def get_face_enhancer(model_path='models/GFPGANv1.4.pth'):
+    global _face_enhancer
+    if _face_enhancer is None:
+        from gfpgan import GFPGANer
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        _face_enhancer = GFPGANer(model_path=model_path, upscale=1, arch='clean', channel_multiplier=2, device=device)
+    return _face_enhancer
+
+def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth', 
+                     denoise_path='models/nafnet_denoiser.pth', 
+                     enhance_faces=False):
+    global _dce_model, _naf_model
     try:
         image_data.seek(0)
         nparr = np.frombuffer(image_data.read(), np.uint8)
@@ -314,53 +331,67 @@ def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth', denoise_pa
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # 1. Zero-DCE++ (Улучшение освещения)
-        model = DCENet_pp().to(device)
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        model.eval()
+        # --- 1. Zero-DCE++ (Улучшение освещения) ---
+        if _dce_model is None:
+            _dce_model = DCENet_pp().to(device)
+            _dce_model.load_state_dict(torch.load(model_path, map_location=device))
+            _dce_model.eval()
 
         img_rgb = cv2.cvtColor(img_cv2, cv2.COLOR_BGR2RGB)
         data_lowlight = img_rgb.astype(np.float32) / 255.0
         data_lowlight = torch.from_numpy(data_lowlight).permute(2, 0, 1).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            A = model(data_lowlight)
+            A = _dce_model(data_lowlight)
             enhanced_img = data_lowlight
             for _ in range(8):
                 enhanced_img = enhanced_img + A * (torch.pow(enhanced_img, 2) - enhanced_img)
             enhanced_img = torch.clamp(enhanced_img, 0, 1)
 
-        # 2. NAFNet (Удаление шума)
-        dn_model = NAFNet(width=32).to(device)
-        checkpoint = torch.load(denoise_path, map_location=device)
-        state_dict = checkpoint['params'] if 'params' in checkpoint else checkpoint
-        dn_model.load_state_dict(state_dict, strict=False)
-        dn_model.eval()
+        # --- 2. NAFNet (Удаление шума) ---
+        if _naf_model is None:
+            _naf_model = NAFNet(width=32).to(device)
+            checkpoint = torch.load(denoise_path, map_location=device)
+            state_dict = checkpoint['params'] if 'params' in checkpoint else checkpoint
+            _naf_model.load_state_dict(state_dict, strict=False)
+            _naf_model.eval()
 
         with torch.no_grad():
             _, _, h, w = enhanced_img.size()
-
-            # Увеличиваем кратность до 32 для более стабильной работы сверток
             factor = 32
             pad_h = (factor - h % factor) % factor
             pad_w = (factor - w % factor) % factor
-
-            # Используем reflect padding, чтобы избежать черных границ
             input_padded = F.pad(enhanced_img, (0, pad_w, 0, pad_h), mode='reflect')
 
-            final_tensor = dn_model(input_padded)
+            final_tensor = _naf_model(input_padded)
             final_tensor = final_tensor[:, :, :h, :w]
             
-            # Небольшое смешивание с входом для уменьшения артефактов (0.9 нейросеть / 0.1 оригинал)
+            # Смешивание (0.9 нейросеть / 0.1 оригинал)
             final_tensor = torch.lerp(enhanced_img, final_tensor, 0.9)
             final_tensor = torch.clamp(final_tensor, 0, 1)
 
         result = final_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
         result = (result * 255).astype(np.uint8)
-        final_img = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
+        intermediate_img = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
 
-        # 3. Мягкое повышение резкости (Unsharp Mask вместо filter2D)
-        # Это предотвращает появление "лесенки" и шахматного паттерна
+        # --- 3. GFPGAN (Восстановление лиц) ---
+        if enhance_faces:
+            try:
+                face_enhancer = get_face_enhancer() 
+                _, _, restored_img = face_enhancer.enhance(
+                    intermediate_img, 
+                    has_aligned=False, 
+                    only_center_face=False, 
+                    paste_back=True
+                )
+                final_img = restored_img
+            except Exception as face_e:
+                print(f"GFPGAN Error: {face_e}. Используем изображение после NAFNet.")
+                final_img = intermediate_img
+        else:
+            final_img = intermediate_img
+
+        # --- 4. Мягкое повышение резкости (Unsharp Mask) ---
         gaussian_blur = cv2.GaussianBlur(final_img, (0, 0), 2.0)
         final_img = cv2.addWeighted(final_img, 1.5, gaussian_blur, -0.5, 0)
 
