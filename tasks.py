@@ -71,7 +71,6 @@ def process_video_task(self, filename_in, filename_out, params, use_ai):
     try:
         success = image_processor.process_video(p_in, p_out, params, use_ai=use_ai)
         if success:
-            # После успешной обработки видео — кидаем оба файла в MinIO
             upload_to_s3_and_cleanup(p_in, filename_in)
             upload_to_s3_and_cleanup(p_out, filename_out)
             status = 'ready'
@@ -97,16 +96,11 @@ def process_photo_task(self, filename_orig, filename_proc, use_ai, params, model
             file_data = f.read()
         
         if use_ai:
-            # Передаем пути к моделям, включая GFPGAN (путь придет из app.py)
             proc_io = image_processor.enhance_image_ai(
                 io.BytesIO(file_data), 
                 model_path=model_paths.get('model'), 
                 denoise_path=model_paths.get('denoise'),
                 enhance_faces=params.get('enhance_faces', False)
-                # Путь к GFPGAN теперь обрабатывается внутри image_processor.py 
-                # через get_face_enhancer(), но если ты захочешь сделать его 
-                # настраиваемым, можно добавить: 
-                # gfpgan_path=model_paths.get('gfpgan')
             )
         else:
             proc_io = image_processor.enhance_low_light_clahe(
@@ -119,7 +113,6 @@ def process_photo_task(self, filename_orig, filename_proc, use_ai, params, model
             )
 
         if proc_io:
-            # Сохраняем результат и отправляем в S3
             with open(p_proc, 'wb') as f_out:
                 f_out.write(proc_io.getbuffer())
             
