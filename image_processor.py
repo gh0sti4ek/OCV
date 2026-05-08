@@ -315,7 +315,7 @@ def get_face_enhancer(model_path='models/GFPGANv1.4.pth'):
     global _face_enhancer
     if _face_enhancer is None:
         from gfpgan import GFPGANer
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        device = torch.device('cpu')
         _face_enhancer = GFPGANer(model_path=model_path, upscale=1, arch='clean', channel_multiplier=2, device=device)
     return _face_enhancer
 
@@ -329,7 +329,7 @@ def enhance_image_ai(image_data, model_path='models/zero_dce_pp.pth',
         img_cv2 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img_cv2 is None: return None
 
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        device = torch.device('cpu')
 
         # --- 1. Zero-DCE++ (Улучшение освещения) ---
         if _dce_model is None:

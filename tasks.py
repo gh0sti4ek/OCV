@@ -7,41 +7,9 @@ from botocore.config import Config
 from celery_app import celery
 import image_processor
 from dotenv import load_dotenv
+from s3_config import s3_client, bucket_name
 
 load_dotenv()
-
-os.environ['NO_PROXY'] = '127.0.0.1,localhost'
-
-# Инициализация клиента (теперь он будет игнорировать системный прокси)
-s3_client = boto3.client(
-    's3',
-    endpoint_url=os.getenv('S3_ENDPOINT', 'http://127.0.0.1:9000'),
-    aws_access_key_id=os.getenv('S3_ACCESS_KEY', 'minioadmin'),
-    aws_secret_access_key=os.getenv('S3_SECRET_KEY', 'minioadmin'),
-    config=Config(signature_version='s3v4', proxies={}), # Отключаем прокси в самом boto3
-    region_name='us-east-1'
-)
-
-def set_minio_public():
-    """Автоматически делает бакет 'uploads' публичным на чтение"""
-    bucket_name = os.getenv('S3_BUCKET', 'uploads')
-    policy = {
-        "Version": "2012-10-17",
-        "Statement": [{
-            "Effect": "Allow",
-            "Principal": {"AWS": ["*"]},
-            "Action": ["s3:GetObject"],
-            "Resource": [f"arn:aws:s3:::{bucket_name}/*"]
-        }]
-    }
-    try:
-        s3_client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(policy))
-        print(f"--- [OK] Доступ к бакету {bucket_name} теперь публичный ---")
-    except Exception as e:
-        print(f"--- [!] Не удалось настроить права (возможно бакет еще не создан): {e} ---")
-
-# Выполняем настройку прав при импорте модуля
-set_minio_public()
 
 def get_db_connection():
     return mysql.connector.connect(

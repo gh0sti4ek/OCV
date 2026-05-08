@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  # Наш сайт
+  web:
+    build: .
+    command: gunicorn -w 2 -b 0.0.0.0:5000 app:app
+    volumes:
+      - .:/app
+    ports:
+      - "5000:5000"
+    env_file: .env
+    depends_on:
+      - redis
+
+  # Наш обработчик (воркер) - ОН СОЗДАЕТ ОЧЕРЕДЬ
+  worker:
+    build: .
+    # --concurrency=1 значит: "обрабатывай строго по одной фотке за раз"
+    command: celery -A tasks worker --loglevel=info --concurrency=1
+    volumes:
+      - .:/app
+    env_file: .env
+    depends_on:
+      - redis
+
+  # Брокер задач
+  redis:
+    image: redis:alpine

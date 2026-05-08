@@ -13,7 +13,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import time
 from datetime import date
-from tasks import s3_client
+from s3_config import s3_client, bucket_name
 import image_processor # Импорт модуля обработки
 
 load_dotenv()
